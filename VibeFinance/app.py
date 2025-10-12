@@ -6,6 +6,13 @@ import os
 from langchain_gigachat.chat_models import GigaChat
 from dotenv import load_dotenv
 
+from langchain.schema import HumanMessage, SystemMessage
+from langchain.prompts import ChatPromptTemplate
+from langgraph.graph import Graph
+from typing import Dict, Any
+
+from classificator import SpendingClassifierAgent
+
 load_dotenv()
 
 gigachat_credentials = os.getenv("GIGACHAT_CREDENTIALS")
