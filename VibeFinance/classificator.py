@@ -1,6 +1,6 @@
-from langchain.chat_models.gigachat import GigaChat
-from langchain.schema import HumanMessage, SystemMessage
-from langchain.prompts import ChatPromptTemplate
+from langchain_gigachat import GigaChat
+from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.prompts import ChatPromptTemplate
 import os
 
 

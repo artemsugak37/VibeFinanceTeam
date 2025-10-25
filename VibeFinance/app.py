@@ -6,9 +6,9 @@ import os
 from langchain_gigachat.chat_models import GigaChat
 from dotenv import load_dotenv
 
-from langchain.schema import HumanMessage, SystemMessage
-from langchain.prompts import ChatPromptTemplate
-from langgraph.graph import Graph
+from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.prompts import ChatPromptTemplate
+from langgraph.graph import StateGraph, START, END
 from typing import Dict, Any
 
 from classificator import SpendingClassifierAgent
@@ -179,6 +179,7 @@ def handle_message():
             ''', (user_id, description, main_cat, psych_cat, amount))
         conn.commit()
         conn.close()
+        print('Все гуд сохранено')
     except Exception as e:
         print(f"Database save error: {e}")
         return jsonify({'success': False, 'message': 'Ошибка при сохранении траты'})
