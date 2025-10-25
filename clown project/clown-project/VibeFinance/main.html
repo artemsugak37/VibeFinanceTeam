@@ -266,8 +266,8 @@
         /* Input Area */
         .input-area {
             display: flex;
-            gap: 16px;
-            align-items: center;
+            flex-direction: column;
+            gap: 12px;
             padding: 16px;
             background: var(--light);
             border-radius: 16px;
@@ -278,6 +278,42 @@
         .input-area:focus-within {
             border-color: var(--primary);
             box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
+        }
+
+        .input-row {
+            display: flex;
+            gap: 12px;
+            align-items: flex-end;
+        }
+
+        .amount-input-container {
+            display: flex;
+            align-items: center;
+            background: white;
+            border: 1px solid var(--light-gray);
+            border-radius: 8px;
+            padding: 8px 12px;
+            min-width: 120px;
+            transition: border-color 0.3s ease;
+        }
+
+        .amount-input-container:focus-within {
+            border-color: var(--primary);
+        }
+
+        .amount-input {
+            border: none;
+            outline: none;
+            background: transparent;
+            font-size: 16px;
+            width: 100%;
+            text-align: right;
+        }
+
+        .currency {
+            color: var(--gray);
+            font-weight: 600;
+            margin-left: 4px;
         }
 
         .message-input {
@@ -304,6 +340,7 @@
             cursor: pointer;
             transition: all 0.3s ease;
             border: none;
+            align-self: flex-end;
         }
 
         .send-btn:hover {
@@ -773,12 +810,25 @@
                 </div>
 
                 <div class="input-area">
-                    <textarea
-                        class="message-input"
-                        id="messageInput"
-                        placeholder="Сохраните сюда свои траты..."
-                        rows="1"
-                    ></textarea>
+                    <div class="input-row">
+                        <textarea
+                            class="message-input"
+                            id="messageInput"
+                            placeholder="Опишите вашу трату..."
+                            rows="1"
+                        ></textarea>
+                        <div class="amount-input-container">
+                            <input
+                                type="number"
+                                class="amount-input"
+                                id="amountInput"
+                                placeholder="Сумма"
+                                step="0.01"
+                                min="0"
+                            >
+                            <span class="currency">₽</span>
+                        </div>
+                    </div>
                     <button class="send-btn" id="sendBtn">
                         <i class="fas fa-paper-plane"></i>
                     </button>
@@ -817,6 +867,7 @@
             // Chat elements
             const chatMessages = document.getElementById('chatMessages');
             const messageInput = document.getElementById('messageInput');
+            const amountInput = document.getElementById('amountInput');
             const sendBtn = document.getElementById('sendBtn');
             const refreshBtn = document.getElementById('refreshBtn');
             const showSpendingsBtn = document.getElementById('showSpendingsBtn');
@@ -960,12 +1011,22 @@
                 // Send message function
                 function sendMessage() {
                     const message = messageInput.value.trim();
+                    const amount = parseFloat(amountInput.value);
+                    
                     if (message) {
-                        console.log('Sending message:', message);
+                        console.log('Sending message:', message, 'Amount:', amount);
+                        
+                        // Check if amount is provided
+                        if (!amount || amount <= 0) {
+                            addMessage('⚠️ Пожалуйста, укажите сумму траты! Это поможет лучше анализировать ваши расходы.', 'bot');
+                            amountInput.focus();
+                            return;
+                        }
                         
                         // Add user message to chat
-                        addMessage(message, 'user');
+                        addMessage(`${message} (${amount} ₽)`, 'user');
                         messageInput.value = '';
+                        amountInput.value = '';
                         messageInput.style.height = 'auto';
                         
                         // Force scroll after adding user message
@@ -1002,7 +1063,7 @@
                             body: JSON.stringify({ 
                                 message: message,
                                 user_id: localStorage.getItem('userId'),
-                                amount: null // Можно добавить поле для суммы
+                                amount: amount
                             })
                         })
                         .then(response => response.json())

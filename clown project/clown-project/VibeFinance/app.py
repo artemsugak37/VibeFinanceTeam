@@ -143,10 +143,14 @@ def handle_message():
     data = request.get_json()
     user_id = data.get('user_id')
     description = data.get('message', '').strip()
-    amount = data.get('amount')  # может быть null
+    amount = data.get('amount')  # теперь обязательное поле
 
     if not user_id or not description:
         return jsonify({'success': False, 'message': 'Не указан пользователь или описание траты'})
+
+    # Проверяем сумму
+    if not amount or amount <= 0:
+        return jsonify({'success': False, 'message': 'Необходимо указать сумму траты'})
 
     # Проверим, существует ли пользователь
     try:
@@ -180,15 +184,18 @@ def handle_message():
         traceback.print_exc()
         return jsonify({'success': False, 'message': f'Ошибка при классификации траты: {str(e)}'})
 
-    # Сохраняем в базу
+    # Сохраняем в базу с правильным временем
     try:
+        from datetime import datetime
+        current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        
         cursor.execute('''
-                INSERT INTO spendings (user_id, description, category_main, category_psych, amount)
-                VALUES (?, ?, ?, ?, ?)
-            ''', (user_id, description, main_cat, psych_cat, amount))
+                INSERT INTO spendings (user_id, description, category_main, category_psych, amount, timestamp)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (user_id, description, main_cat, psych_cat, amount, current_time))
         conn.commit()
         conn.close()
-        print('Все гуд сохранено')
+        print(f'Трата сохранена: {description} - {amount} руб. в {current_time}')
     except Exception as e:
         print(f"Database save error: {e}")
         return jsonify({'success': False, 'message': 'Ошибка при сохранении траты'})
@@ -196,7 +203,9 @@ def handle_message():
     return jsonify({
         'success': True,
         'message': 'Трата успешно сохранена',
-        'classification': f"{main_cat} | {psych_cat}"
+        'classification': f"{main_cat} | {psych_cat}",
+        'amount': amount,
+        'timestamp': current_time
     })
 
 @app.route('/get_spendings/<int:user_id>', methods=['GET'])
