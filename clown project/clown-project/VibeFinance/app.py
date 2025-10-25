@@ -61,7 +61,7 @@ def hash_password(password):
 
 @app.route('/')
 def index():
-    with open('clown-project/VibeFinance/main.html', 'r', encoding='utf-8') as f:
+    with open('C:/Users/Acer/Desktop/clown-project/clown project/clown-project/VibeFinance/main.html', 'r', encoding='utf-8') as f:
         return f.read()
 
 
@@ -161,15 +161,24 @@ def handle_message():
         return jsonify({'success': False, 'message': 'Ошибка проверки пользователя'})
 
     # Классифицируем трату
-    classifier = SpendingClassifierAgent()
     try:
+        classifier = SpendingClassifierAgent()
+        print(f"Attempting to classify: '{description}'")
         classification = classifier.classify(description).strip()
+        print(f"Raw classification result: '{classification}'")
+        
         if " | " not in classification:
-            raise ValueError("Неверный формат ответа от модели")
+            print(f"Invalid format - no ' | ' separator found in: '{classification}'")
+            raise ValueError(f"Неверный формат ответа от модели: '{classification}'")
+        
         main_cat, psych_cat = map(str.strip, classification.split(" | ", 1))
+        print(f"Parsed categories - Main: '{main_cat}', Psych: '{psych_cat}'")
+        
     except Exception as e:
-        print(f"Classification error: {e}")
-        return jsonify({'success': False, 'message': 'Ошибка при классификации траты'})
+        print(f"Classification error details: {type(e).__name__}: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'message': f'Ошибка при классификации траты: {str(e)}'})
 
     # Сохраняем в базу
     try:

@@ -6,11 +6,23 @@ import os
 
 class SpendingClassifierAgent:
     def __init__(self):
-        # Используем LangChain для работы с GigaChat
-        self.llm = GigaChat(
-            credentials=os.getenv("GIGACHAT_CREDENTIALS"),
-            verify_ssl_certs=False
-        )
+        try:
+            credentials = os.getenv("GIGACHAT_CREDENTIALS")
+            print(f"Initializing GigaChat with credentials: {bool(credentials)}")
+            
+            if not credentials:
+                raise ValueError("GIGACHAT_CREDENTIALS environment variable is not set")
+            
+            # Используем LangChain для работы с GigaChat
+            self.llm = GigaChat(
+                credentials=credentials,
+                verify_ssl_certs=False
+            )
+            print("GigaChat initialized successfully")
+            
+        except Exception as e:
+            print(f"Error initializing GigaChat: {type(e).__name__}: {e}")
+            raise e
 
         # Используем промпт-шаблоны LangChain
         self.prompt_template = ChatPromptTemplate.from_messages([
@@ -56,9 +68,23 @@ class SpendingClassifierAgent:
         ])
 
     def classify(self, spending_text: str) -> str:
-        # Формируем сообщения через LangChain
-        messages = self.prompt_template.format_messages(spending_text=spending_text)
+        try:
+            print(f"GigaChat credentials available: {bool(os.getenv('GIGACHAT_CREDENTIALS'))}")
+            
+            # Формируем сообщения через LangChain
+            messages = self.prompt_template.format_messages(spending_text=spending_text)
+            print(f"Formatted messages: {messages}")
 
-        # Вызываем модель через стандартный интерфейс LangChain
-        response = self.llm.invoke(messages)
-        return response.content
+            # Вызываем модель через стандартный интерфейс LangChain
+            print("Calling GigaChat API...")
+            response = self.llm.invoke(messages)
+            print(f"GigaChat response: {response}")
+            print(f"Response content: '{response.content}'")
+            
+            return response.content
+            
+        except Exception as e:
+            print(f"Error in classify method: {type(e).__name__}: {e}")
+            import traceback
+            traceback.print_exc()
+            raise e
