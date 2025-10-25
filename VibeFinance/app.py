@@ -39,6 +39,18 @@ def init_db():
                 password_hash TEXT NOT NULL
             )
         ''')
+        cursor.execute('''
+                    CREATE TABLE spendings (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id INTEGER NOT NULL,
+                        description TEXT NOT NULL,
+                        category_main TEXT NOT NULL,
+                        category_psych TEXT NOT NULL,
+                        amount REAL,
+                        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+                    )
+                ''')
         conn.commit()
         conn.close()
 
@@ -90,7 +102,6 @@ def register():
         print(f"Registration error: {e}")
         return jsonify({'success': False, 'message': 'Ошибка при регистрации'})
 
-
 @app.route('/login', methods=['POST'])
 def login():
     data = request.get_json()
@@ -114,7 +125,12 @@ def login():
         password_hash = hash_password(password)
 
         if password_hash == stored_hash:
-            return jsonify({'success': True, 'message': 'Вход успешен'})
+            return jsonify({
+                'success': True,
+                'message': 'Вход успешен',
+                'user_id': user_id,
+                'name': name
+            })
         else:
             return jsonify({'success': False, 'message': 'Неверный пароль'})
 
@@ -122,14 +138,77 @@ def login():
         print(f"Login error: {e}")
         return jsonify({'success': False, 'message': 'Ошибка при входе'})
 
-
 @app.route('/send_message', methods=['POST'])
 def handle_message():
     data = request.get_json()
-    user_message = data.get('message', '')
-    print(f"Received message: {user_message}")
-    return jsonify({'status': 'received'})
+    user_id = data.get('user_id')
+    description = data.get('message', '').strip()
+    amount = data.get('amount')  # может быть null
 
+    if not user_id or not description:
+        return jsonify({'success': False, 'message': 'Не указан пользователь или описание траты'})
+
+    # Проверим, существует ли пользователь
+    try:
+        conn = sqlite3.connect('users.db')
+        cursor = conn.cursor()
+        cursor.execute('SELECT id FROM users WHERE id = ?', (user_id,))
+        if not cursor.fetchone():
+            conn.close()
+            return jsonify({'success': False, 'message': 'Пользователь не найден'})
+    except Exception as e:
+        print(f"User check error: {e}")
+        return jsonify({'success': False, 'message': 'Ошибка проверки пользователя'})
+
+    # Классифицируем трату
+    classifier = SpendingClassifierAgent()
+    try:
+        classification = classifier.classify(description).strip()
+        if " | " not in classification:
+            raise ValueError("Неверный формат ответа от модели")
+        main_cat, psych_cat = map(str.strip, classification.split(" | ", 1))
+    except Exception as e:
+        print(f"Classification error: {e}")
+        return jsonify({'success': False, 'message': 'Ошибка при классификации траты'})
+
+    # Сохраняем в базу
+    try:
+        cursor.execute('''
+                INSERT INTO spendings (user_id, description, category_main, category_psych, amount)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (user_id, description, main_cat, psych_cat, amount))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"Database save error: {e}")
+        return jsonify({'success': False, 'message': 'Ошибка при сохранении траты'})
+
+    return jsonify({
+        'success': True,
+        'message': 'Трата успешно сохранена',
+        'classification': f"{main_cat} | {psych_cat}"
+    })
+
+@app.route('/get_spendings/<int:user_id>', methods=['GET'])
+def get_spendings(user_id):
+    try:
+        conn = sqlite3.connect('users.db')
+        conn.row_factory = sqlite3.Row  # чтобы можно было обращаться по имени колонки
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT id, description, category_main, category_psych, amount, timestamp
+            FROM spendings
+            WHERE user_id = ?
+            ORDER BY timestamp DESC
+        ''', (user_id,))
+        rows = cursor.fetchall()
+        conn.close()
+
+        spendings = [dict(row) for row in rows]
+        return jsonify({'success': True, 'spendings': spendings})
+    except Exception as e:
+        print(f"Fetch spendings error: {e}")
+        return jsonify({'success': False, 'message': 'Ошибка при загрузке трат'})
 
 if __name__ == '__main__':
     init_db()
