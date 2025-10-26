@@ -12,6 +12,7 @@ from langgraph.graph import StateGraph, START, END
 from typing import Dict, Any
 
 from classificator import SpendingClassifierAgent
+from workflow import spending_graph
 
 load_dotenv()
 
@@ -143,16 +144,12 @@ def handle_message():
     data = request.get_json()
     user_id = data.get('user_id')
     description = data.get('message', '').strip()
-    amount = data.get('amount')  # теперь обязательное поле
+    amount = data.get('amount')
 
-    if not user_id or not description:
-        return jsonify({'success': False, 'message': 'Не указан пользователь или описание траты'})
+    if not user_id or not description or not amount or amount <= 0:
+        return jsonify({'success': False, 'message': 'Нужны описание, сумма и пользователь'})
 
-    # Проверяем сумму
-    if not amount or amount <= 0:
-        return jsonify({'success': False, 'message': 'Необходимо указать сумму траты'})
-
-    # Проверим, существует ли пользователь
+    # Проверка существования пользователя
     try:
         conn = sqlite3.connect('users.db')
         cursor = conn.cursor()
@@ -164,46 +161,37 @@ def handle_message():
         print(f"User check error: {e}")
         return jsonify({'success': False, 'message': 'Ошибка проверки пользователя'})
 
-    # Классифицируем трату
+    # 🔁 Запуск LangGraph workflow
     try:
-        classifier = SpendingClassifierAgent()
-        print(f"Attempting to classify: '{description}'")
-        classification = classifier.classify(description).strip()
-        print(f"Raw classification result: '{classification}'")
-        
-        if " | " not in classification:
-            print(f"Invalid format - no ' | ' separator found in: '{classification}'")
-            raise ValueError(f"Неверный формат ответа от модели: '{classification}'")
-        
-        main_cat, psych_cat = map(str.strip, classification.split(" | ", 1))
-        print(f"Parsed categories - Main: '{main_cat}', Psych: '{psych_cat}'")
-        
+        initial_state = {"description": description, "amount": amount}
+        final_state = spending_graph.invoke(initial_state)
+        main_cat = final_state["main_category"]
+        psych_cat = final_state["psych_category"]
+        advice = final_state["advice"]
     except Exception as e:
-        print(f"Classification error details: {type(e).__name__}: {e}")
+        print(f"Workflow error: {e}")
         import traceback
         traceback.print_exc()
-        return jsonify({'success': False, 'message': f'Ошибка при классификации траты: {str(e)}'})
+        return jsonify({'success': False, 'message': f'Ошибка обработки траты: {str(e)}'})
 
-    # Сохраняем в базу с правильным временем
+    # Сохранение в БД
     try:
         from datetime import datetime
         current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        
         cursor.execute('''
-                INSERT INTO spendings (user_id, description, category_main, category_psych, amount, timestamp)
-                VALUES (?, ?, ?, ?, ?, ?)
-            ''', (user_id, description, main_cat, psych_cat, amount, current_time))
+            INSERT INTO spendings (user_id, description, category_main, category_psych, amount, timestamp)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (user_id, description, main_cat, psych_cat, amount, current_time))
         conn.commit()
         conn.close()
-        print(f'Трата сохранена: {description} - {amount} руб. в {current_time}')
     except Exception as e:
-        print(f"Database save error: {e}")
-        return jsonify({'success': False, 'message': 'Ошибка при сохранении траты'})
+        print(f"DB error: {e}")
+        return jsonify({'success': False, 'message': 'Ошибка сохранения в базу'})
 
     return jsonify({
         'success': True,
-        'message': 'Трата успешно сохранена',
         'classification': f"{main_cat} | {psych_cat}",
+        'advice': advice,
         'amount': amount,
         'timestamp': current_time
     })

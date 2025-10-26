@@ -1071,6 +1071,9 @@
                             console.log('Message sent successfully:', data);
                             if (data.success) {
                                 addMessage(`Трата сохранена! Категории: ${data.classification}`, 'bot');
+                                if (data.advice) {
+                                    addMessage(`💬 ${data.advice}`, 'bot');
+                                }
                             } else {
                                 addMessage(`Ошибка: ${data.message}`, 'bot');
                             }
