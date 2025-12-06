@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -150,7 +151,7 @@
         .header-actions {
             display: flex;
             gap: 16px;
-            margin-left: 40px; /* ← Это отодвинет кнопку дальше от логотипа */
+            margin-left: 40px;
         }
         .refresh-btn {
             background: rgba(255, 255, 255, 0.2);
@@ -250,7 +251,6 @@
             gap: 12px;
             align-items: flex-end;
         }
-        /* УБРАНО: .amount-input-container */
         .message-input {
             flex: 1;
             border: none;
@@ -262,9 +262,7 @@
             max-height: 120px;
             min-height: 24px;
         }
-        .send-btn {
-            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
-            color: white;
+        .voice-btn, .send-btn {
             width: 48px;
             height: 48px;
             border-radius: 16px;
@@ -275,12 +273,18 @@
             transition: all 0.3s ease;
             border: none;
             align-self: flex-end;
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+            color: white;
         }
-        .send-btn:hover {
+        .voice-btn:hover, .send-btn:hover {
             transform: scale(1.05);
             box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
         }
-        .send-btn:disabled {
+        .voice-btn.recording {
+            background: linear-gradient(135deg, var(--danger) 0%, #dc2626 100%);
+            box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.4);
+        }
+        .voice-btn:disabled, .send-btn:disabled {
             opacity: 0.6;
             cursor: not-allowed;
             transform: none;
@@ -301,11 +305,7 @@
         .chat-messages::-webkit-scrollbar-thumb:hover {
             background: var(--gray);
         }
-        /* Smooth scrolling for the entire page */
-        html {
-            scroll-behavior: smooth;
-        }
-        /* Ensure proper scrolling on mobile */
+        /* Responsive Design */
         @media (max-width: 768px) {
             body {
                 padding: 10px;
@@ -317,27 +317,6 @@
             }
             .chat-container {
                 padding: 20px;
-            }
-        }
-        /* Responsive Design */
-        @media (max-width: 768px) {
-            .auth-container {
-                flex-direction: column;
-            }
-            .auth-form {
-                padding: 40px 20px;
-            }
-            .header {
-                padding: 20px 24px;
-            }
-            .logo-text {
-                font-size: 24px;
-            }
-            .message {
-                max-width: 85%;
-            }
-            .input-area {
-                padding: 12px;
             }
         }
         @media (max-width: 480px) {
@@ -477,7 +456,6 @@
             min-height: 0;
             scroll-behavior: smooth;
         }
-        /* Scrollbar для модального окна */
         .modal-content::-webkit-scrollbar {
             width: 8px;
         }
@@ -493,7 +471,6 @@
         .modal-content::-webkit-scrollbar-thumb:hover {
             background: var(--gray);
         }
-        /* Стили для элементов трат в модальном окне */
         .spending-item {
             background: var(--light);
             border: 1px solid var(--light-gray);
@@ -551,30 +528,6 @@
         .empty-state h3 {
             margin-bottom: 8px;
             color: var(--dark);
-        }
-        /* Responsive для модального окна */
-        @media (max-width: 768px) {
-            .modal-container {
-                width: 95%;
-                max-height: 90vh;
-                border-radius: 16px;
-            }
-            .modal-header {
-                padding: 20px 24px;
-            }
-            .modal-header h2 {
-                font-size: 20px;
-            }
-            .modal-content {
-                padding: 20px 24px;
-            }
-            .spending-item {
-                padding: 12px;
-            }
-            .spending-categories {
-                flex-direction: column;
-                gap: 8px;
-            }
         }
         /* Hidden by default */
         .auth-section, .main-app {
@@ -677,8 +630,10 @@
                             placeholder="Опишите вашу трату..."
                             rows="1"
                         ></textarea>
-                        <!-- УБРАНО: <div class="amount-input-container">...</div> -->
                     </div>
+                    <button class="voice-btn" id="voiceBtn">
+                        <i class="fas fa-microphone"></i>
+                    </button>
                     <button class="send-btn" id="sendBtn">
                         <i class="fas fa-paper-plane"></i>
                     </button>
@@ -686,7 +641,7 @@
             </div>
         </div>
     </div>
-    <!-- Диалоговое окно для отображения трат -->
+    <!-- Modal for spendings -->
     <div class="modal-overlay" id="spendingsModal">
         <div class="modal-container">
             <div class="modal-header">
@@ -695,9 +650,7 @@
                     <i class="fas fa-times"></i>
                 </button>
             </div>
-            <div class="modal-content" id="modalContent">
-                <!-- Здесь будут отображаться траты -->
-            </div>
+            <div class="modal-content" id="modalContent"></div>
         </div>
     </div>
     <script>
@@ -715,10 +668,10 @@
             // Chat elements
             const chatMessages = document.getElementById('chatMessages');
             const messageInput = document.getElementById('messageInput');
-            // УБРАНО: const amountInput = document.getElementById('amountInput');
             const sendBtn = document.getElementById('sendBtn');
             const refreshBtn = document.getElementById('refreshBtn');
             const showSpendingsBtn = document.getElementById('showSpendingsBtn');
+            const voiceBtn = document.getElementById('voiceBtn');
 
             // Modal elements
             const spendingsModal = document.getElementById('spendingsModal');
@@ -728,60 +681,47 @@
             // Modal functionality
             function openSpendingsModal() {
                 spendingsModal.classList.add('active');
-                document.body.style.overflow = 'hidden'; // Prevent background scrolling
+                document.body.style.overflow = 'hidden';
             }
-
             function closeSpendingsModal() {
                 spendingsModal.classList.remove('active');
-                document.body.style.overflow = ''; // Restore scrolling
+                document.body.style.overflow = '';
             }
-
-            // Event listeners for modal
             closeModal.addEventListener('click', closeSpendingsModal);
-            // Close modal when clicking outside
             spendingsModal.addEventListener('click', function(e) {
-                if (e.target === spendingsModal) {
-                    closeSpendingsModal();
-                }
+                if (e.target === spendingsModal) closeSpendingsModal();
             });
-            // Close modal with Escape key
             document.addEventListener('keydown', function(e) {
                 if (e.key === 'Escape' && spendingsModal.classList.contains('active')) {
                     closeSpendingsModal();
                 }
             });
 
-            // Switch between login and register forms
-            showRegister.addEventListener('click', function() {
+            // Auth form switching
+            showRegister.addEventListener('click', () => {
                 loginForm.style.display = 'none';
                 registerForm.style.display = 'block';
             });
-
-            showLogin.addEventListener('click', function() {
+            showLogin.addEventListener('click', () => {
                 registerForm.style.display = 'none';
                 loginForm.style.display = 'block';
             });
 
-            // Login function
+            // Login
             loginBtn.addEventListener('click', function() {
                 const email = document.getElementById('loginEmail').value;
                 const password = document.getElementById('loginPassword').value;
                 if (email && password) {
-                    // Send login request to Flask
                     fetch('/login', {
                         method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify({ email: email, password: password })
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ email, password })
                     })
-                    .then(response => response.json())
+                    .then(r => r.json())
                     .then(data => {
                         if (data.success) {
-                            // Сохраняем user_id в localStorage
                             localStorage.setItem('userId', data.user_id);
                             localStorage.setItem('userName', data.name);
-                            // Hide auth, show main app
                             authSection.classList.remove('active');
                             mainApp.classList.add('active');
                             initializeChat();
@@ -789,270 +729,224 @@
                             alert('Ошибка входа: ' + data.message);
                         }
                     })
-                    .catch(error => {
-                        console.error('Login error:', error);
+                    .catch(e => {
+                        console.error('Login error:', e);
                         alert('Произошла ошибка при входе');
                     });
                 }
             });
 
-            // Register function
+            // Register
             registerBtn.addEventListener('click', function() {
                 const name = document.getElementById('registerName').value;
                 const email = document.getElementById('registerEmail').value;
                 const password = document.getElementById('registerPassword').value;
                 const confirmPassword = document.getElementById('registerConfirmPassword').value;
-                if (name && email && password && confirmPassword) {
-                    if (password !== confirmPassword) {
-                        alert('Пароли не совпадают');
-                        return;
-                    }
-                    // Send registration request to Flask
-                    fetch('/register', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify({
-                            name: name,
-                            email: email,
-                            password: password
-                        })
-                    })
-                    .then(response => response.json())
-                    .then(data => {
-                        if (data.success) {
-                            alert('Регистрация успешна! Теперь войдите в систему.');
-                            // Switch back to login form
-                            registerForm.style.display = 'none';
-                            loginForm.style.display = 'block';
-                            // Clear registration fields
-                            document.getElementById('registerName').value = '';
-                            document.getElementById('registerEmail').value = '';
-                            document.getElementById('registerPassword').value = '';
-                            document.getElementById('registerConfirmPassword').value = '';
-                        } else {
-                            alert('Ошибка регистрации: ' + data.message);
-                        }
-                    })
-                    .catch(error => {
-                        console.error('Registration error:', error);
-                        alert('Произошла ошибка при регистрации');
-                    });
+                if (!password || password !== confirmPassword) {
+                    alert('Пароли не совпадают');
+                    return;
                 }
+                fetch('/register', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ name, email, password })
+                })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        alert('Регистрация успешна! Теперь войдите в систему.');
+                        registerForm.style.display = 'none';
+                        loginForm.style.display = 'block';
+                        ['registerName', 'registerEmail', 'registerPassword', 'registerConfirmPassword']
+                            .forEach(id => document.getElementById(id).value = '');
+                    } else {
+                        alert('Ошибка регистрации: ' + data.message);
+                    }
+                })
+                .catch(e => {
+                    console.error('Registration error:', e);
+                    alert('Произошла ошибка при регистрации');
+                });
             });
 
-            // Initialize chat functionality
+            // Initialize chat
             function initializeChat() {
-                // Auto-resize textarea
                 messageInput.addEventListener('input', function() {
                     this.style.height = 'auto';
                     this.style.height = Math.min(this.scrollHeight, 120) + 'px';
                 });
 
-                // Send message function
-                function sendMessage() {
-                    const message = messageInput.value.trim();
-                    // const amount = parseFloat(amountInput.value); // <-- УБРАТЬ ЭТУ СТРОКУ
+                // === ГОЛОСОВОЙ ВВОД ===
+                let recognition;
+                const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+                if (SpeechRecognition) {
+                    recognition = new SpeechRecognition();
+                    recognition.continuous = true;
+                    recognition.interimResults = true;
+                    recognition.lang = 'ru-RU';
 
-                    if (message) {
-                        console.log('Sending message:', message); // <-- УБРАТЬ "Amount: amount"
-                        // if (!amount || amount <= 0) { // <-- УБРАТЬ ВЕСЬ БЛОК if
-                        //     addMessage('⚠️ Пожалуйста, укажите сумму траты! Это поможет лучше анализировать ваши расходы.', 'bot');
-                        //     amountInput.focus();
-                        //     return;
-                        // }
+                    let finalTranscript = '';
 
-                        // Add user message to chat - ПОКА ЧТО ПОКАЗЫВАЕМ ТОЛЬКО СООБЩЕНИЕ
-                        addMessage(`${message}`, 'user');
-                        messageInput.value = '';
-                        // amountInput.value = ''; // <-- УБРАТЬ ЭТУ СТРОКУ
-                        messageInput.style.height = 'auto';
-                        // Force scroll after adding user message
-                        setTimeout(() => {
-                            chatMessages.scrollTop = chatMessages.scrollHeight;
-                        }, 50);
-                        console.log('Focusing back to input...');
-                        // Focus back to input for continuous typing
-                        setTimeout(() => {
-                            messageInput.focus();
-                            console.log('Input focused');
-                        }, 100);
-
-                        // Проверяем специальные команды (это можно оставить)
-                        if (message.toLowerCase().includes('показать траты') ||
-                            message.toLowerCase().includes('мои траты') ||
-                            message.toLowerCase().includes('история трат')) {
-                            const userId = localStorage.getItem('userId');
-                            if (userId) {
-                                loadSpendingsInModal(userId);
+                    recognition.onresult = function(event) {
+                        let interimTranscript = '';
+                        for (let i = event.resultIndex; i < event.results.length; ++i) {
+                            if (event.results[i].isFinal) {
+                                finalTranscript += event.results[i][0].transcript + ' ';
                             } else {
-                                addMessage('Сначала войдите в систему, чтобы просмотреть свои траты.', 'bot');
+                                interimTranscript += event.results[i][0].transcript;
                             }
-                            return; // <-- ВАЖНО: выйти, не отправляя на бэкенд
                         }
+                        messageInput.value = finalTranscript + interimTranscript;
+                        messageInput.dispatchEvent(new Event('input'));
+                    };
 
-                        // Send message to Flask backend
-                        fetch('/send_message', {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                            },
-                            body: JSON.stringify({
-                                message: message, // <-- УБРАТЬ "amount: amount"
-                                user_id: localStorage.getItem('userId')
-                                // amount: amount // <-- УБРАТЬ ЭТУ СТРОКУ
-                            })
-                        })
-                        .then(response => response.json())
-                        .then(data => {
-                            console.log('Message sent successfully:', data);
-                            if (data.success) {
-                                // Проверяем, был ли это ответ на трату или общий запрос
-                                if (data.is_spending === false) {
-                                    // Это был общий запрос
-                                    addMessage(`💬 ${data.advice}`, 'bot');
-                                } else {
-                                    // Это был ответ на трату
-                                    addMessage(`Трата сохранена! Категории: ${data.classification}`, 'bot');
-                                    if (data.advice) {
-                                        addMessage(`💬 ${data.advice}`, 'bot');
-                                    }
-                                }
-                            } else {
-                                addMessage(`Ошибка: ${data.message}`, 'bot');
-                            }
-                            // Focus back to input after response
-                            setTimeout(() => {
-                                messageInput.focus();
-                                // Force scroll after bot response
-                                chatMessages.scrollTop = chatMessages.scrollHeight;
-                            }, 200);
-                        })
-                        .catch(error => {
-                            console.error('Error sending message:', error);
-                            addMessage("Извините, произошла ошибка при отправке сообщения.", 'bot');
-                            // Focus back to input after error
-                            setTimeout(() => {
-                                messageInput.focus();
-                                // Force scroll after error
-                                chatMessages.scrollTop = chatMessages.scrollHeight;
-                            }, 200);
-                        });
-                    }
+                    recognition.onerror = function(event) {
+                        console.error('Speech recognition error', event.error);
+                        voiceBtn.classList.remove('recording');
+                    };
+
+                    recognition.onend = function() {
+                        voiceBtn.classList.remove('recording');
+                    };
+
+                    voiceBtn.addEventListener('click', function() {
+                        if (voiceBtn.classList.contains('recording')) {
+                            recognition.stop();
+                        } else {
+                            finalTranscript = messageInput.value.trim();
+                            recognition.start();
+                            voiceBtn.classList.add('recording');
+                        }
+                    });
+                } else {
+                    voiceBtn.style.display = 'none'; // Hide if not supported
                 }
 
-                // Add message to chat
-                function addMessage(text, sender) {
-                    console.log('Adding message:', text, 'from:', sender);
-                    const messageDiv = document.createElement('div');
-                    messageDiv.className = `message ${sender}-message`;
-                    const messageHeader = document.createElement('div');
-                    messageHeader.className = 'message-header';
-                    messageHeader.innerHTML = sender === 'user' ?
-                        '<i class="fas fa-user"></i> Вы' :
-                        '<i class="fas fa-robot"></i> VibeFinance AI';
-                    const messageContent = document.createElement('div');
-                    messageContent.textContent = text;
-                    messageDiv.appendChild(messageHeader);
-                    messageDiv.appendChild(messageContent);
-                    chatMessages.appendChild(messageDiv);
-                    console.log('Message added, scrolling...');
-                    console.log('Chat height:', chatMessages.scrollHeight);
-                    console.log('Current scroll:', chatMessages.scrollTop);
-                    // Force scroll to bottom immediately
-                    requestAnimationFrame(() => {
-                        chatMessages.scrollTop = chatMessages.scrollHeight;
-                        console.log('Scrolled to:', chatMessages.scrollTop);
-                        // Additional smooth scroll
+                // Send message
+                function sendMessage() {
+                    const message = messageInput.value.trim();
+                    if (!message) return;
+
+                    addMessage(message, 'user');
+                    messageInput.value = '';
+                    messageInput.style.height = 'auto';
+                    setTimeout(() => chatMessages.scrollTop = chatMessages.scrollHeight, 50);
+
+                    if (/(показать траты|мои траты|история трат)/i.test(message)) {
+                        const userId = localStorage.getItem('userId');
+                        if (userId) loadSpendingsInModal(userId);
+                        else addMessage('Сначала войдите в систему.', 'bot');
+                        return;
+                    }
+
+                    fetch('/send_message', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ message, user_id: localStorage.getItem('userId') })
+                    })
+                    .then(r => r.json())
+                    .then(data => {
+                        if (data.success) {
+                            if (!data.is_spending) {
+                                addMessage(`💬 ${data.advice}`, 'bot');
+                            } else {
+                                addMessage(`Трата сохранена! Категории: ${data.classification}`, 'bot');
+                                if (data.advice) addMessage(`💬 ${data.advice}`, 'bot');
+                            }
+                        } else {
+                            addMessage(`Ошибка: ${data.message}`, 'bot');
+                        }
                         setTimeout(() => {
-                            chatMessages.scrollTo({
-                                top: chatMessages.scrollHeight,
-                                behavior: 'smooth'
-                            });
-                        }, 100);
+                            messageInput.focus();
+                            chatMessages.scrollTop = chatMessages.scrollHeight;
+                        }, 200);
+                    })
+                    .catch(e => {
+                        console.error('Send error:', e);
+                        addMessage("Извините, произошла ошибка.", 'bot');
+                        setTimeout(() => {
+                            messageInput.focus();
+                            chatMessages.scrollTop = chatMessages.scrollHeight;
+                        }, 200);
                     });
                 }
 
-                // Event listeners for chat
+                function sanitizeAndFormat(text) {
+                    if (typeof text !== 'string') return '';
+                    return text
+                        .replace(/&/g, '&amp;')
+                        .replace(/</g, '&lt;')
+                        .replace(/>/g, '&gt;')
+                        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                        .replace(/\n/g, '<br>')
+                        .replace(/^(•|—|→)/gm, '<span style="color:#4f46e5; font-weight:bold;">$1</span>');
+                }
+
+                function addMessage(text, sender) {
+                    const div = document.createElement('div');
+                    div.className = `message ${sender}-message`;
+                    const header = document.createElement('div');
+                    header.className = 'message-header';
+                    header.innerHTML = sender === 'user'
+                        ? '<i class="fas fa-user"></i> Вы'
+                        : '<i class="fas fa-robot"></i> VibeFinance AI';
+                    const content = document.createElement('div');
+                    content.innerHTML = sanitizeAndFormat(text);
+                    div.appendChild(header);
+                    div.appendChild(content);
+                    chatMessages.appendChild(div);
+                    requestAnimationFrame(() => {
+                        chatMessages.scrollTop = chatMessages.scrollHeight;
+                        setTimeout(() => chatMessages.scrollTo({ top: chatMessages.scrollHeight, behavior: 'smooth' }), 100);
+                    });
+                }
+
                 sendBtn.addEventListener('click', sendMessage);
-                messageInput.addEventListener('keypress', function(e) {
+                messageInput.addEventListener('keypress', e => {
                     if (e.key === 'Enter' && !e.shiftKey) {
                         e.preventDefault();
                         sendMessage();
                     }
                 });
-                refreshBtn.addEventListener('click', function() {
-                    // Clear chat and show welcome message
+                refreshBtn.addEventListener('click', () => {
                     chatMessages.innerHTML = `
                         <div class="welcome-message">
                             <h2>Добро пожаловать в VibeCoin</h2>
                             <p>Ваш финансовый помощник на базе искусственного интеллекта поможет вам эффективнее управлять своими финансами, принимать более обоснованные финансовые решения и достигать финансовых целей.</p>
                             <div class="features">
-                                <div class="feature">
-                                    <i class="fas fa-chart-line"></i>
-                                    <span>Бюджет</span>
-                                </div>
-                                <div class="feature">
-                                    <i class="fas fa-piggy-bank"></i>
-                                    <span>Сохраненные цели</span>
-                                </div>
-                                <div class="feature">
-                                    <i class="fas fa-lightbulb"></i>
-                                    <span>Умные советы</span>
-                                </div>
+                                <div class="feature"><i class="fas fa-chart-line"></i><span>Бюджет</span></div>
+                                <div class="feature"><i class="fas fa-piggy-bank"></i><span>Сохраненные цели</span></div>
+                                <div class="feature"><i class="fas fa-lightbulb"></i><span>Умные советы</span></div>
                             </div>
                         </div>
                     `;
                     messageInput.focus();
                 });
-                showSpendingsBtn.addEventListener('click', function() {
+                showSpendingsBtn.addEventListener('click', () => {
                     const userId = localStorage.getItem('userId');
-                    if (userId) {
-                        loadSpendingsInModal(userId);
-                    } else {
-                        addMessage('Сначала войдите в систему, чтобы просмотреть свои траты.', 'bot');
-                    }
+                    if (userId) loadSpendingsInModal(userId);
+                    else addMessage('Сначала войдите в систему.', 'bot');
                 });
                 messageInput.focus();
             }
 
-            // Функция для загрузки трат пользователя в модальное окно
             function loadSpendingsInModal(userId) {
                 fetch(`/get_spendings/${userId}`)
-                    .then(response => response.json())
+                    .then(r => r.json())
                     .then(data => {
                         if (data.success) {
                             displaySpendingsInModal(data.spendings);
                             openSpendingsModal();
                         } else {
-                            console.error('Ошибка загрузки трат:', data.message);
-                            addMessage('Ошибка при загрузке трат. Попробуйте позже.', 'bot');
+                            addMessage('Ошибка при загрузке трат.', 'bot');
                         }
                     })
-                    .catch(error => {
-                        console.error('Ошибка сети:', error);
+                    .catch(e => {
+                        console.error('Spendings load error:', e);
                         addMessage('Ошибка сети при загрузке трат.', 'bot');
                     });
             }
 
-            // Функция для загрузки трат пользователя (старая версия для чата)
-            function loadSpendings(userId) {
-                fetch(`/get_spendings/${userId}`)
-                    .then(response => response.json())
-                    .then(data => {
-                        if (data.success) {
-                            displaySpendings(data.spendings);
-                        } else {
-                            console.error('Ошибка загрузки трат:', data.message);
-                        }
-                    })
-                    .catch(error => {
-                        console.error('Ошибка сети:', error);
-                    });
-            }
-
-            // Функция для отображения трат в модальном окне
             function displaySpendingsInModal(spendings) {
                 if (spendings.length === 0) {
                     modalContent.innerHTML = `
@@ -1065,21 +959,18 @@
                     return;
                 }
                 let html = '';
-                spendings.forEach((spending, index) => {
-                    const date = new Date(spending.timestamp).toLocaleDateString('ru-RU', {
-                        year: 'numeric',
-                        month: 'long',
-                        day: 'numeric',
-                        hour: '2-digit',
-                        minute: '2-digit'
+                spendings.forEach(sp => {
+                    const date = new Date(sp.timestamp).toLocaleDateString('ru-RU', {
+                        year: 'numeric', month: 'long', day: 'numeric',
+                        hour: '2-digit', minute: '2-digit'
                     });
-                    const amount = spending.amount ? `${spending.amount} ₽` : 'Сумма не указана';
+                    const amount = sp.amount ? `${sp.amount} ₽` : 'Сумма не указана';
                     html += `
                         <div class="spending-item">
-                            <div class="spending-description">${spending.description}</div>
+                            <div class="spending-description">${sp.description}</div>
                             <div class="spending-categories">
-                                <span class="category-badge">${spending.category_main}</span>
-                                <span class="category-badge psych">${spending.category_psych}</span>
+                                <span class="category-badge">${sp.category_main}</span>
+                                <span class="category-badge psych">${sp.category_psych}</span>
                             </div>
                             <div class="spending-amount">${amount}</div>
                             <div class="spending-date">${date}</div>
@@ -1088,50 +979,6 @@
                 });
                 modalContent.innerHTML = html;
             }
-
-            // Функция для отображения трат в чате (новая версия, адаптирована под обновлённую структуру данных)
-            function displaySpendings(spendings) {
-                if (spendings.length === 0) {
-                    addMessage('У вас пока нет сохраненных трат. Добавьте первую трату!', 'bot');
-                    return;
-                }
-                let message = 'Ваши последние траты:';
-                spendings.slice(0, 10).forEach((spending, index) => {
-                    const date = new Date(spending.timestamp).toLocaleDateString('ru-RU');
-                    // Используем spending.amount, который теперь извлекается из GigaChat
-                    const amount = spending.amount ? ` (${spending.amount} руб.)` : ' (Сумма не указана)';
-                    message += `${index + 1}. ${spending.description}${amount}`;
-                    message += `   📂 ${spending.category_main} | ${spending.category_psych}`;
-                    message += `   📅 ${date}`;
-                });
-                if (spendings.length > 10) {
-                    message += `... и еще ${spendings.length - 10} трат`;
-                }
-                addMessage(message, 'bot');
-            }
-
-            // Test function for debugging scroll
-            window.testScroll = function() {
-                console.log('Testing scroll...');
-                console.log('Chat messages element:', chatMessages);
-                console.log('Chat height:', chatMessages.scrollHeight);
-                console.log('Chat scroll top:', chatMessages.scrollTop);
-                // Add test message
-                addMessage('Тестовое сообщение для проверки прокрутки', 'bot');
-                // Multiple scroll attempts
-                setTimeout(() => {
-                    chatMessages.scrollTop = chatMessages.scrollHeight;
-                    console.log('Scroll attempt 1:', chatMessages.scrollTop);
-                }, 50);
-                setTimeout(() => {
-                    chatMessages.scrollTop = chatMessages.scrollHeight;
-                    console.log('Scroll attempt 2:', chatMessages.scrollTop);
-                }, 150);
-                setTimeout(() => {
-                    chatMessages.scrollTop = chatMessages.scrollHeight;
-                    console.log('Scroll attempt 3:', chatMessages.scrollTop);
-                }, 300);
-            };
         });
     </script>
 </body>
