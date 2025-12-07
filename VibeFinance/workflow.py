@@ -1,86 +1,187 @@
 # workflow.py
-
-from typing import TypedDict, Annotated
+from typing import TypedDict
 from langgraph.graph import StateGraph, START, END
 from classificator import SpendingClassifierAgent
 from psychologist_agent import FinancialPsychologistAgent
+from intent_router import IntentRouterAgent
+from visualizer_agent import SpendingVisualizerAgent  # ← НОВЫЙ ИМПОРТ
+import sqlite3
+from datetime import datetime
 
 class SpendingState(TypedDict):
-    # Входные данные
     user_id: int
-    original_description: str # <-- Вместо message
-    # Данные из GigaChat
-    amount: float # <-- Теперь извлекается из GigaChat
-    main_category: str
-    psych_category: str
-    parsed_description: str # <-- Новое поле
-    parsed_date: str # <-- Новое поле, формат ISO
-    confidence: float # <-- Новое поле
-    # Результат психолога
+    original_description: str
+    intent: str
+    amount: float | None
+    main_category: str | None
+    psych_category: str | None
+    parsed_description: str | None
+    parsed_date: str | None
+    confidence: float | None
     advice: str
-    # Для сохранения в БД (опционально, можно и в app.py)
-    timestamp: str # <-- Дата сохранения, если parsed_date null
 
+# Инициализация агентов
 classifier = SpendingClassifierAgent()
 psychologist = FinancialPsychologistAgent()
+router = IntentRouterAgent()
+visualizer = SpendingVisualizerAgent()  # ← НОВЫЙ АГЕНТ
+
+def route_intent(state: SpendingState) -> dict:
+    intent = router.route(state["original_description"])
+    return {"intent": intent}
+
+def should_suggest_goal(message: str, user_id: int) -> bool:
+    goal_keywords = [
+        "накопить", "цель", "мечта", "собрать на", "хочу", "хотел бы",
+        "машина", "отпуск", "путешествие", "чёрный день", "подушка",
+        "бюджет на", "финансовая цель", "план накоплений"
+    ]
+    has_keywords = any(kw in message.lower() for kw in goal_keywords)
+    if not has_keywords:
+        return False
+
+    try:
+        with sqlite3.connect('users.db') as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT COUNT(*) FROM goals WHERE user_id = ? AND is_active = 1', (user_id,))
+            active_count = cursor.fetchone()[0]
+        return active_count < 5
+    except Exception as e:
+        print(f"Goal suggestion DB error: {e}")
+        return False
 
 def classify_spending(state: SpendingState) -> dict:
-    # Передаём original_description (раньше это был message)
-    result = classifier.classify(state["original_description"])
+    """Вызывается ТОЛЬКО если intent == "spending"."""
+    try:
+        result = classifier.classify(state["original_description"])
+        amount = result.get("amount")
+        if amount is None:
+            return {
+                "amount": None,
+                "main_category": None,
+                "psych_category": None,
+                "parsed_description": None,
+                "parsed_date": None,
+                "confidence": None
+            }
 
-    # Извлекаем данные из JSON-ответа
-    amount = result.get("amount")
-    if amount is None:
-        # Если GigaChat не нашёл сумму, можно бросить ошибку или использовать 0.0
-        # Пока бросим ошибку, чтобы app.py мог обработать
-        raise ValueError(f"GigaChat не смог извлечь сумму из описания: {state['original_description']}")
-    # Проверим, что amount - число
-    if not isinstance(amount, (int, float)):
-        raise ValueError(f"GigaChat вернул некорректную сумму: {amount}")
+        # Валидация категорий
+        VALID_MAIN = {"Еда", "Транспорт", "Развлечения", "Здоровье", "Одежда", "Жилье", "Образование", "Связь", "Другое"}
+        VALID_PSYCH = {"Радость", "Комфорт", "Развитие", "Необходимость"}
 
-    # Извлекаем дату
-    parsed_date = result.get("parsed_date")
-    if parsed_date is None:
-        # Если GigaChat не нашёл дату, используем текущую (как в app.py)
-        from datetime import datetime
-        parsed_date = datetime.now().isoformat() # Формат ISO для БД
+        main_cat = result.get("main_category")
+        psych_cat = result.get("psych_category")
 
-    # Извлекаем остальные поля
-    main_category = result.get("main_category")
-    psych_category = result.get("psych_category")
-    parsed_description = result.get("parsed_description")
-    confidence = result.get("confidence")
+        if main_cat not in VALID_MAIN:
+            main_cat = "Другое"
+        if psych_cat not in VALID_PSYCH:
+            psych_cat = "Необходимость"
 
-    # Проверим, что категории не None (на случай сбоя в GigaChat)
-    if not main_category or not psych_category:
-         raise ValueError(f"GigaChat вернул некорректные категории: main={main_category}, psych={psych_category}")
+        parsed_date = result.get("parsed_date") or datetime.now().isoformat()
+        return {
+            "amount": float(amount),
+            "main_category": main_cat,
+            "psych_category": psych_cat,
+            "parsed_description": result.get("parsed_description"),
+            "parsed_date": parsed_date,
+            "confidence": result.get("confidence", 0.0)
+        }
+    except Exception as e:
+        print(f"Classification error: {e}")
+        return {
+            "amount": None,
+            "main_category": None,
+            "psych_category": None,
+            "parsed_description": None,
+            "parsed_date": None,
+            "confidence": None
+        }
 
-    # Возвращаем словарь с обновлёнными полями
-    return {
-        "amount": float(amount),
-        "main_category": main_category,
-        "psych_category": psych_category,
-        "parsed_description": parsed_description,
-        "parsed_date": parsed_date,
-        "confidence": confidence,
-        "original_description": result.get("original_description") # <-- Сохраняем оригинал
-    }
+def generate_advice(state: SpendingState) -> dict:
+    message = state["original_description"]
+    user_id = state["user_id"]
+    intent = state["intent"]
 
+    try:
+        if intent == "spending" and state.get("psych_category"):
+            desc = state.get("parsed_description") or message
+            base_advice = psychologist.advise(desc, state["psych_category"])
+        else:
+            base_advice = psychologist.respond_to_general_query(message)
+    except Exception as e:
+        print(f"Psychologist error: {e}")
+        base_advice = "Спасибо за сообщение! Продолжай следить за своими финансами — ты на правильном пути."
 
-def generate_psych_advice(state: SpendingState) -> dict:
-    # Используем parsed_description или original_description для совета
-    description_for_advice = state.get("parsed_description") or state.get("original_description")
-    advice = psychologist.advise(description_for_advice, state["psych_category"])
+    # Предложение помощи с целями (только для не-трат)
+    if intent in ("goal", "question") and should_suggest_goal(message, user_id):
+        base_advice += "\n\n💡 Кстати, я могу помочь тебе составить пошаговый план, как накопить на это — просто скажи «да»!"
+
+    return {"advice": base_advice}
+
+# === НОВЫЙ УЗЕЛ: ВИЗУАЛИЗАЦИЯ ===
+def generate_visualization(state: SpendingState) -> dict:
+    """Генерирует HTML-таблицу и график для интента 'visualization'."""
+    message = state["original_description"].lower()
+    user_id = state["user_id"]
+
+    # Определяем период на основе ключевых слов
+    if "месяц" in message or "month" in message:
+        period = "month"
+    elif "всё" in message or "все" in message or "all" in message:
+        period = "all"
+    else:
+        period = "week"  # по умолчанию — последняя неделя
+
+    try:
+        result = visualizer.generate_visualization(user_id, period)
+        advice = f"""
+📊 **Финансовая визуализация** за {'последнюю неделю' if period == 'week' else 'месяц' if period == 'month' else 'всё время'}:
+
+{result['summary']}
+
+{result['table_html']}
+
+{'<br><img src="image/png;base64,' + result['chart_base64'] + '" style="max-width: 100%; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">' if result['chart_base64'] else ''}
+        """.strip()
+    except Exception as e:
+        print(f"Visualization error: {e}")
+        advice = "Не удалось сгенерировать визуализацию. Попробуйте позже."
+
     return {"advice": advice}
 
-# Строим граф
+# === ЛОГИКА ВЕТВЛЕНИЯ ===
+def should_classify(state: SpendingState) -> str:
+    intent = state["intent"]
+    if intent == "spending":
+        return "classify"
+    elif intent == "visualization":
+        return "visualize"
+    else:
+        return "advise"
+
+# === ПОСТРОЕНИЕ ГРАФА ===
 workflow = StateGraph(SpendingState)
 
+# Узлы
+workflow.add_node("route", route_intent)
 workflow.add_node("classify", classify_spending)
-workflow.add_node("advise", generate_psych_advice)
+workflow.add_node("advise", generate_advice)
+workflow.add_node("visualize", generate_visualization)  # ← НОВЫЙ УЗЕЛ
 
-workflow.add_edge(START, "classify")
+# Рёбра
+workflow.add_edge(START, "route")
+workflow.add_conditional_edges(
+    "route",
+    should_classify,
+    {
+        "classify": "classify",
+        "visualize": "visualize",
+        "advise": "advise"
+    }
+)
 workflow.add_edge("classify", "advise")
+workflow.add_edge("visualize", END)
 workflow.add_edge("advise", END)
 
+# Скомпилированный граф
 spending_graph = workflow.compile()
