@@ -250,7 +250,93 @@ def handle_message():
 
     message_lower = message.lower().strip()
 
-    # 🔹 Команда: "недельный отчёт"
+    # 🔹 Команда: "визуализация" или "графики"
+    if re.search(
+        r'(визуализац|график|диаграмм|таблиц|визуализ|покажи.*график|покажи.*таблиц)',
+        message_lower
+    ):
+        from visualization_workflow import visualization_graph
+        try:
+            initial_state = {
+                "user_id": user_id,
+                "request_type": "visualization",
+                "analyst_data": None,
+                "visualization_data": None,
+                "report_text": None,
+                "error": None
+            }
+            final_state = visualization_graph.invoke(initial_state)
+            
+            if final_state.get("error"):
+                return jsonify({
+                    'success': False,
+                    'message': final_state["error"]
+                })
+            
+            visualization_data = final_state.get("visualization_data")
+            if visualization_data:
+                return jsonify({
+                    'success': True,
+                    'visualization': visualization_data,
+                    'is_spending': False,
+                    'is_visualization': True
+                })
+            else:
+                return jsonify({
+                    'success': False,
+                    'message': 'Не удалось сгенерировать визуализацию'
+                })
+        except Exception as e:
+            print(f"Visualization error: {e}")
+            import traceback
+            traceback.print_exc()
+            return jsonify({
+                'success': False,
+                'message': 'Не удалось создать визуализацию. Попробуйте позже.'
+            })
+
+    # 🔹 Команда: "недельный отчёт с визуализацией" или "отчёт с графиками"
+    if re.search(
+        r'(отчет|отчёт|недел[ьыя]|прошл[уа]я?\s+недел[ья]|финансовы[йя]).*(недел[ья]|отчет|отчёт|период|трат[ыа]|расход[ыа]).*(график|визуализац|таблиц)|'
+        r'(отчет|отчёт).*(график|визуализац|таблиц)|'
+        r'(график|визуализац|таблиц).*(отчет|отчёт)',
+        message_lower
+    ):
+        from visualization_workflow import visualization_graph
+        try:
+            initial_state = {
+                "user_id": user_id,
+                "request_type": "both",  # И визуализация, и текстовый отчёт
+                "analyst_data": None,
+                "visualization_data": None,
+                "report_text": None,
+                "error": None
+            }
+            final_state = visualization_graph.invoke(initial_state)
+            
+            if final_state.get("error"):
+                return jsonify({
+                    'success': False,
+                    'message': final_state["error"]
+                })
+            
+            return jsonify({
+                'success': True,
+                'advice': final_state.get("report_text", ""),
+                'visualization': final_state.get("visualization_data"),
+                'is_spending': False,
+                'is_visualization': True
+            })
+        except Exception as e:
+            print(f"Report with visualization error: {e}")
+            import traceback
+            traceback.print_exc()
+            return jsonify({
+                'success': False,
+                'message': 'Не удалось сформировать отчёт с визуализацией. Попробуйте позже.'
+            })
+
+    # 🔹 Команда: "недельный отчёт" (только текст)
     if re.search(
         r'(отчет|отчёт|недел[ьыя]|прошл[уа]я?\s+недел[ья]|финансовы[йя]).*(недел[ья]|отчет|отчёт|период|трат[ыа]|расход[ыа])|'
         r'(трат[ыа]|расход[ыа]|недел[ья]).*(отчет|отчёт|покажи|выведи|сделай|сформируй)',

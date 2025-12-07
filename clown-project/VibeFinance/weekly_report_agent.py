@@ -8,13 +8,22 @@ class WeeklyReportAgent:
         self.psychologist = FinancialPsychologistAgent()
 
     def generate_weekly_report(self, user_id: int) -> str:
+        """Генерирует текстовый отчёт (для обратной совместимости)."""
+        data = self.get_weekly_report_data(user_id)
+        return self.format_report_text(data)
+    
+    def get_weekly_report_data(self, user_id: int) -> dict:
+        """
+        Получает структурированные данные для недельного отчёта.
+        Возвращает словарь с данными для аналитики и визуализации.
+        """
         week_ago = datetime.now() - timedelta(days=7)
         conn = sqlite3.connect('users.db')
         cursor = conn.cursor()
         
         # Все траты за неделю
         cursor.execute('''
-            SELECT description, amount, category_main, timestamp
+            SELECT description, amount, category_main, category_psych, timestamp
             FROM spendings
             WHERE user_id = ? AND timestamp >= ?
             ORDER BY timestamp DESC
@@ -23,21 +32,54 @@ class WeeklyReportAgent:
         conn.close()
 
         if not all_spendings:
+            return {
+                "total_spent": 0,
+                "category_totals": {},
+                "spendings": [],
+                "period": "Последняя неделя",
+                "has_data": False
+            }
+
+        # Группировка по категориям
+        category_totals = {}
+        spendings_list = []
+        
+        for desc, amt, main_cat, psych_cat, ts in all_spendings:
+            if main_cat not in category_totals:
+                category_totals[main_cat] = {"total": 0, "count": 0}
+            category_totals[main_cat]["total"] += amt
+            category_totals[main_cat]["count"] += 1
+            
+            spendings_list.append({
+                "description": desc,
+                "amount": amt,
+                "category_main": main_cat,
+                "category_psych": psych_cat,
+                "timestamp": ts
+            })
+
+        total_spent = sum(v["total"] for v in category_totals.values())
+        
+        return {
+            "total_spent": total_spent,
+            "category_totals": category_totals,
+            "spendings": spendings_list,
+            "period": "Последняя неделя",
+            "has_data": True
+        }
+    
+    def format_report_text(self, data: dict) -> str:
+        """Форматирует структурированные данные в текстовый отчёт."""
+        if not data.get("has_data", False):
             return (
                 "**📊 Отчёт за последнюю неделю**\n\n"
                 "У вас не было трат — это замечательно!\n"
                 "Вы отлично контролируете свои финансы. Так держать! 💪"
             )
-
-        # Группировка по категориям
-        category_totals = {}
-        for desc, amt, cat, ts in all_spendings:
-            if cat not in category_totals:
-                category_totals[cat] = {"total": 0, "count": 0}
-            category_totals[cat]["total"] += amt
-            category_totals[cat]["count"] += 1
-
-        total_spent = sum(v["total"] for v in category_totals.values())
+        
+        total_spent = data["total_spent"]
+        category_totals = data["category_totals"]
+        spendings_list = data["spendings"]
         
         lines = []
         lines.append(f"**📊 Финансовый отчёт за последнюю неделю**")
@@ -45,9 +87,9 @@ class WeeklyReportAgent:
         lines.append("")
         lines.append("**🧠 Ваш психологический анализ:**")
         
-        for cat, data in category_totals.items():
-            total = round(data["total"], 2)
-            count = data["count"]
+        for cat, cat_data in category_totals.items():
+            total = round(cat_data["total"], 2)
+            count = cat_data["count"]
             psych_cat = self._map_to_psych_category(cat)
             desc = f"Потратил {total} ₽ на {cat.lower()} в {count} случаях за неделю"
             advice = self.psychologist.advise(desc, psych_cat)
@@ -56,7 +98,8 @@ class WeeklyReportAgent:
         lines.append("")
         lines.append("**📋 Подробный список всех трат:**")
         
-        for desc, amt, cat, ts in all_spendings:
+        for spending in spendings_list:
+            ts = spending.get("timestamp")
             if ts == 'null' or ts is None:
                 date_str = "время не указано"
             else:
@@ -64,6 +107,8 @@ class WeeklyReportAgent:
                     date_str = datetime.fromisoformat(ts.replace('Z', '+00:00')).strftime("%d.%m %H:%M")
                 except (ValueError, AttributeError):
                     date_str = "некорректная дата"
+            amt = spending.get("amount", 0)
+            desc = spending.get("description", "N/A")
             lines.append(f"• {desc} — **{round(amt, 2)} ₽** ({date_str})")
         
         lines.append("")

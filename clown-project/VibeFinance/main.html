@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>VibeFinance - Your AI Financial Assistant</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <style>
         * {
             margin: 0;
@@ -583,6 +584,77 @@
         .auth-section.active, .main-app.active {
             display: flex;
         }
+        /* Visualization Styles */
+        .visualization-container {
+            background: var(--light);
+            border-radius: 16px;
+            padding: 24px;
+            margin: 16px 0;
+            border: 2px solid var(--light-gray);
+        }
+        .visualization-title {
+            font-size: 20px;
+            font-weight: 600;
+            color: var(--dark);
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .chart-wrapper {
+            position: relative;
+            height: 300px;
+            margin-bottom: 24px;
+        }
+        .table-wrapper {
+            overflow-x: auto;
+            margin-bottom: 24px;
+        }
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            border-radius: 12px;
+            overflow: hidden;
+        }
+        .data-table thead {
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+            color: white;
+        }
+        .data-table th {
+            padding: 12px 16px;
+            text-align: left;
+            font-weight: 600;
+            font-size: 14px;
+        }
+        .data-table td {
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--light-gray);
+            color: var(--dark);
+        }
+        .data-table tbody tr:hover {
+            background: var(--light);
+        }
+        .data-table tbody tr:last-child td {
+            border-bottom: none;
+        }
+        .insights-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        .insights-list li {
+            background: white;
+            padding: 12px 16px;
+            margin-bottom: 8px;
+            border-radius: 8px;
+            border-left: 4px solid var(--primary);
+            color: var(--dark);
+        }
+        .insights-list li:before {
+            content: "💡";
+            margin-right: 8px;
+        }
     </style>
 </head>
 <body>
@@ -908,8 +980,15 @@
                         .then(data => {
                             console.log('Message sent successfully:', data);
                             if (data.success) {
-                                // Проверяем, был ли это ответ на трату или общий запрос
-                                if (data.is_spending === false) {
+                                // Проверяем, есть ли визуализация
+                                if (data.is_visualization && data.visualization) {
+                                    // Показываем текстовый отчёт, если есть
+                                    if (data.advice) {
+                                        addMessage(`💬 ${data.advice}`, 'bot');
+                                    }
+                                    // Добавляем визуализацию
+                                    displayVisualization(data.visualization);
+                                } else if (data.is_spending === false) {
                                     // Это был общий запрос
                                     addMessage(`💬 ${data.advice}`, 'bot');
                                 } else {
@@ -1120,6 +1199,182 @@
                 addMessage(message, 'bot');
             }
 
+            // Функция для отображения визуализации
+            function displayVisualization(vizData) {
+                if (!vizData) return;
+                
+                const vizContainer = document.createElement('div');
+                vizContainer.className = 'visualization-container';
+                
+                // Графики
+                if (vizData.charts && vizData.charts.length > 0) {
+                    vizData.charts.forEach((chart, index) => {
+                        const chartWrapper = document.createElement('div');
+                        chartWrapper.className = 'chart-wrapper';
+                        const canvas = document.createElement('canvas');
+                        canvas.id = `chart-${Date.now()}-${index}`;
+                        chartWrapper.appendChild(canvas);
+                        
+                        const title = document.createElement('div');
+                        title.className = 'visualization-title';
+                        title.innerHTML = `<i class="fas fa-chart-${chart.type === 'pie' ? 'pie' : chart.type === 'bar' ? 'bar' : 'line'}"></i> ${chart.title}`;
+                        
+                        const chartSection = document.createElement('div');
+                        chartSection.appendChild(title);
+                        chartSection.appendChild(chartWrapper);
+                        vizContainer.appendChild(chartSection);
+                        
+                        // Создаём график с помощью Chart.js
+                        setTimeout(() => {
+                            const ctx = canvas.getContext('2d');
+                            const chartConfig = {
+                                type: chart.type,
+                                data: {
+                                    labels: chart.data.labels || [],
+                                    datasets: [{
+                                        label: chart.title,
+                                        data: chart.data.values || [],
+                                        backgroundColor: chart.type === 'pie' 
+                                            ? [
+                                                'rgba(99, 102, 241, 0.8)',
+                                                'rgba(16, 185, 129, 0.8)',
+                                                'rgba(245, 158, 11, 0.8)',
+                                                'rgba(239, 68, 68, 0.8)',
+                                                'rgba(139, 92, 246, 0.8)',
+                                                'rgba(236, 72, 153, 0.8)',
+                                                'rgba(59, 130, 246, 0.8)',
+                                                'rgba(34, 197, 94, 0.8)'
+                                              ]
+                                            : 'rgba(99, 102, 241, 0.8)',
+                                        borderColor: chart.type === 'pie' 
+                                            ? 'rgba(255, 255, 255, 1)'
+                                            : 'rgba(99, 102, 241, 1)',
+                                        borderWidth: 2
+                                    }]
+                                },
+                                options: {
+                                    responsive: true,
+                                    maintainAspectRatio: false,
+                                    plugins: {
+                                        legend: {
+                                            position: 'bottom',
+                                            labels: {
+                                                padding: 15,
+                                                font: {
+                                                    size: 12
+                                                }
+                                            }
+                                        },
+                                        tooltip: {
+                                            callbacks: {
+                                                label: function(context) {
+                                                    let label = context.label || '';
+                                                    if (label) {
+                                                        label += ': ';
+                                                    }
+                                                    label += context.parsed.y || context.parsed;
+                                                    label += ' ₽';
+                                                    return label;
+                                                }
+                                            }
+                                        }
+                                    },
+                                    scales: chart.type !== 'pie' ? {
+                                        y: {
+                                            beginAtZero: true,
+                                            ticks: {
+                                                callback: function(value) {
+                                                    return value + ' ₽';
+                                                }
+                                            }
+                                        }
+                                    } : {}
+                                }
+                            };
+                            new Chart(ctx, chartConfig);
+                        }, 100);
+                    });
+                }
+                
+                // Таблицы
+                if (vizData.tables && vizData.tables.length > 0) {
+                    vizData.tables.forEach(table => {
+                        const tableSection = document.createElement('div');
+                        const title = document.createElement('div');
+                        title.className = 'visualization-title';
+                        title.innerHTML = `<i class="fas fa-table"></i> ${table.title}`;
+                        tableSection.appendChild(title);
+                        
+                        const tableWrapper = document.createElement('div');
+                        tableWrapper.className = 'table-wrapper';
+                        const tableEl = document.createElement('table');
+                        tableEl.className = 'data-table';
+                        
+                        // Заголовки
+                        const thead = document.createElement('thead');
+                        const headerRow = document.createElement('tr');
+                        table.headers.forEach(header => {
+                            const th = document.createElement('th');
+                            th.textContent = header;
+                            headerRow.appendChild(th);
+                        });
+                        thead.appendChild(headerRow);
+                        tableEl.appendChild(thead);
+                        
+                        // Строки
+                        const tbody = document.createElement('tbody');
+                        table.rows.forEach(row => {
+                            const tr = document.createElement('tr');
+                            row.forEach(cell => {
+                                const td = document.createElement('td');
+                                td.textContent = cell;
+                                tr.appendChild(td);
+                            });
+                            tbody.appendChild(tr);
+                        });
+                        tableEl.appendChild(tbody);
+                        
+                        tableWrapper.appendChild(tableEl);
+                        tableSection.appendChild(tableWrapper);
+                        vizContainer.appendChild(tableSection);
+                    });
+                }
+                
+                // Инсайты
+                if (vizData.insights && vizData.insights.length > 0) {
+                    const insightsSection = document.createElement('div');
+                    const title = document.createElement('div');
+                    title.className = 'visualization-title';
+                    title.innerHTML = `<i class="fas fa-lightbulb"></i> Инсайты`;
+                    insightsSection.appendChild(title);
+                    
+                    const insightsList = document.createElement('ul');
+                    insightsList.className = 'insights-list';
+                    vizData.insights.forEach(insight => {
+                        const li = document.createElement('li');
+                        li.textContent = insight;
+                        insightsList.appendChild(li);
+                    });
+                    insightsSection.appendChild(insightsList);
+                    vizContainer.appendChild(insightsSection);
+                }
+                
+                // Добавляем визуализацию в чат
+                const messageDiv = document.createElement('div');
+                messageDiv.className = 'message ai-message';
+                const messageHeader = document.createElement('div');
+                messageHeader.className = 'message-header';
+                messageHeader.innerHTML = '<i class="fas fa-robot"></i> VibeFinance AI - Визуализация';
+                messageDiv.appendChild(messageHeader);
+                messageDiv.appendChild(vizContainer);
+                chatMessages.appendChild(messageDiv);
+                
+                // Прокрутка к визуализации
+                setTimeout(() => {
+                    chatMessages.scrollTop = chatMessages.scrollHeight;
+                }, 200);
+            }
+            
             // Test function for debugging scroll
             window.testScroll = function() {
                 console.log('Testing scroll...');
