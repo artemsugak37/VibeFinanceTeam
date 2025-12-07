@@ -104,21 +104,29 @@ def generate_advice(state: SpendingState) -> dict:
 
     try:
         if intent == "spending" and state.get("psych_category"):
+            # Обычная трата → психолог
             desc = state.get("parsed_description") or message
-            base_advice = psychologist.advise(desc, state["psych_category"])
+            advice = psychologist.advise(desc, state["psych_category"])
+        elif intent == "goal":
+            # 🔹 НОВОЕ: обработка финансовых целей
+            from savings_planner_agent import SavingsPlannerAgent
+            planner = SavingsPlannerAgent()
+            advice = planner.generate_plan(message, user_id)
         else:
-            base_advice = psychologist.respond_to_general_query(message)
+            # Вопрос, приветствие и т.д. → общий психолог
+            advice = psychologist.respond_to_general_query(message)
     except Exception as e:
-        print(f"Psychologist error: {e}")
-        base_advice = "Спасибо за сообщение! Продолжай следить за своими финансами — ты на правильном пути."
+        print(f"Advice generation error: {e}")
+        import traceback
+        traceback.print_exc()
+        advice = "Спасибо за сообщение! Продолжай следить за своими финансами — ты на правильном пути."
 
-    # Предложение помощи с целями (только для не-трат)
-    if intent in ("goal", "question") and should_suggest_goal(message, user_id):
-        base_advice += "\n\n💡 Кстати, я могу помочь тебе составить пошаговый план, как накопить на это — просто скажи «да»!"
+    # Предложение помощи с целями (только для вопросов, не для целей!)
+    if intent == "question" and should_suggest_goal(message, user_id):
+        advice += "\n\n💡 Кстати, я могу помочь тебе составить пошаговый план, как накопить на это — просто скажи «да»!"
 
-    return {"advice": base_advice}
+    return {"advice": advice}
 
-# === НОВЫЙ УЗЕЛ: ВИЗУАЛИЗАЦИЯ ===
 def generate_visualization(state: SpendingState) -> dict:
     """Генерирует HTML-таблицу и график для интента 'visualization'."""
     message = state["original_description"].lower()
