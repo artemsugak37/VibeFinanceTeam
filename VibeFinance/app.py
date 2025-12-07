@@ -3,7 +3,7 @@ import hashlib
 import sqlite3
 import os
 import secrets
-
+import re
 from langchain_gigachat.chat_models import GigaChat
 from dotenv import load_dotenv
 
@@ -52,11 +52,12 @@ giga = GigaChat(
 
 app = Flask(__name__)
 
-# Создаем базу данных при запуске
 def init_db():
     if not os.path.exists('users.db'):
         conn = sqlite3.connect('users.db')
         cursor = conn.cursor()
+        
+        # Таблица пользователей
         cursor.execute('''
             CREATE TABLE users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -65,6 +66,8 @@ def init_db():
                 password_hash TEXT NOT NULL
             )
         ''')
+        
+        # Таблица трат — с ПОЛНОЙ структурой, как в твоём app.py
         cursor.execute('''
             CREATE TABLE spendings (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -81,15 +84,75 @@ def init_db():
                 FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
             )
         ''')
+        
+        # Таблица целей — новая
+        cursor.execute('''
+            CREATE TABLE goals (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                title TEXT NOT NULL,
+                target_amount REAL NOT NULL,
+                current_amount REAL DEFAULT 0,
+                target_date DATE,
+                is_active BOOLEAN DEFAULT 1,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+        ''')
+        
         conn.commit()
         conn.close()
-        print("База данных users.db создана с новой структурой.")
+        print("База данных users.db создана с таблицами: users, spendings, goals.")
     else:
-        print("Файл users.db уже существует.")
-
+        # БД существует — проверим и добавим недостающие таблицы
+        conn = sqlite3.connect('users.db')
+        cursor = conn.cursor()
+        
+        # Проверка и создание таблицы spendings (на случай, если она отсутствует)
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='spendings'")
+        if not cursor.fetchone():
+            cursor.execute('''
+                CREATE TABLE spendings (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    description TEXT NOT NULL,
+                    category_main TEXT NOT NULL,
+                    category_psych TEXT NOT NULL,
+                    amount REAL NOT NULL,
+                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    original_description TEXT,
+                    parsed_description TEXT,
+                    confidence REAL,
+                    parsed_date DATETIME,
+                    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+                )
+            ''')
+            print("Добавлена таблица spendings в существующую БД.")
+        
+        # Проверка и создание таблицы goals
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='goals'")
+        if not cursor.fetchone():
+            cursor.execute('''
+                CREATE TABLE goals (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    title TEXT NOT NULL,
+                    target_amount REAL NOT NULL,
+                    current_amount REAL DEFAULT 0,
+                    target_date DATE,
+                    is_active BOOLEAN DEFAULT 1,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+                )
+            ''')
+            print("Добавлена таблица goals в существующую БД.")
+        
+        conn.commit()
+        conn.close()
+        print("База данных users.db уже существует. Проверены все таблицы.")
 @app.route('/')
 def index():
-    with open('VibeFinance/main.html', 'r', encoding='utf-8') as f:
+    with open('c:/Users/admin/Downloads/VibeFinanceTeam-artem-line/vibeproject/clown-project/VibeFinance/main.html', 'r', encoding='utf-8') as f:
         return f.read()
 
 @app.route('/register', methods=['POST'])
@@ -163,19 +226,16 @@ def login():
         print(f"Login error: {e}")
         return jsonify({'success': False, 'message': 'Ошибка при входе'})
 
-# ... остальной код без изменений (send_message, get_spendings и т.д.)
-
 @app.route('/send_message', methods=['POST'])
 def handle_message():
     data = request.get_json()
     user_id = data.get('user_id')
-    message = data.get('message', '').strip() # <-- Теперь только message
+    message = data.get('message', '').strip()
 
-    # Проверяем наличие user_id и message
     if not user_id or not message:
         return jsonify({'success': False, 'message': 'Нужны описание и пользователь'})
 
-    # Проверка существования пользователя (остаётся)
+    # Проверка существования пользователя
     try:
         conn = sqlite3.connect('users.db')
         cursor = conn.cursor()
@@ -183,91 +243,121 @@ def handle_message():
         if not cursor.fetchone():
             conn.close()
             return jsonify({'success': False, 'message': 'Пользователь не найден'})
+        conn.close()
     except Exception as e:
         print(f"User check error: {e}")
         return jsonify({'success': False, 'message': 'Ошибка проверки пользователя'})
 
-    # 🔁 Запуск LangGraph workflow
-    # initial_state теперь содержит original_description вместо description и amount
+    message_lower = message.lower().strip()
+
+    # 🔹 Команда: "недельный отчёт"
+    if re.search(
+        r'(отчет|отчёт|недел[ьыя]|прошл[уа]я?\s+недел[ья]|финансовы[йя]).*(недел[ья]|отчет|отчёт|период|трат[ыа]|расход[ыа])|'
+        r'(трат[ыа]|расход[ыа]|недел[ья]).*(отчет|отчёт|покажи|выведи|сделай|сформируй)',
+        message_lower
+    ):
+        from weekly_report_agent import WeeklyReportAgent
+        report_agent = WeeklyReportAgent()
+        try:
+            report_text = report_agent.generate_weekly_report(user_id)
+            return jsonify({
+                'success': True,
+                'advice': report_text,
+                'is_spending': False
+            })
+        except Exception as e:
+            print(f"Weekly report error: {e}")
+            import traceback
+            traceback.print_exc()
+            return jsonify({
+                'success': False,
+                'message': 'Не удалось сформировать отчёт. Попробуйте позже.'
+            })
+
+    # 🔹 ВСЁ ОСТАЛЬНОЕ: обработка через workflow (траты, вопросы, цели)
     initial_state = {"original_description": message, "user_id": user_id}
     try:
         final_state = spending_graph.invoke(initial_state)
-        # Теперь final_state содержит amount, main_category, psych_category, parsed_date и т.д.
-        amount = final_state["amount"]
-        main_cat = final_state["main_category"]
-        psych_cat = final_state["psych_category"]
-        parsed_date = final_state["parsed_date"]
-        original_description = final_state["original_description"]
-        parsed_description = final_state.get("parsed_description", "")
-        confidence = final_state.get("confidence", 0.0)
-        advice = final_state["advice"] # <-- Это advice от FinancialPsychologistAgent, основанный на трате
 
-        # Сохранение в БД
-        try:
-            # Используем parsed_date, который уже подготовлен в workflow
+        advice = final_state.get("advice", "Спасибо за сообщение!")
+        intent = final_state.get("intent", "question")
+        is_spending = (intent == "spending" and final_state.get("amount") is not None)
+
+        # === НАЧАЛО ЗАМЕНЫ: ВСТАВЬ ЭТО ВМЕСТО СТАРОГО БЛОКА СОХРАНЕНИЯ ===
+        if is_spending:
+            from datetime import datetime  # ← убедись, что импортирован (обычно уже есть)
+            
+            # Открываем новое соединение для сохранения
+            conn = sqlite3.connect('users.db')
+            cursor = conn.cursor()
+            
+            # Получаем данные из состояния
+            amount = final_state["amount"]
+            main_cat = final_state["main_category"]
+            psych_cat = final_state["psych_category"]
+            parsed_date_raw = final_state["parsed_date"]
+            original_description = final_state["original_description"]
+            parsed_description = final_state.get("parsed_description", "")
+            confidence = final_state.get("confidence", 0.0)
+
+            # ✅ Гарантируем, что timestamp — всегда текущее время сохранения
+            actual_timestamp = datetime.now().isoformat()
+
+            # ✅ Гарантируем, что parsed_date — либо валидная дата, либо текущая
+            if parsed_date_raw is None or parsed_date_raw == 'null' or not isinstance(parsed_date_raw, str):
+                actual_parsed_date = actual_timestamp
+            else:
+                # Дополнительная проверка: если строка не похожа на дату — заменяем
+                try:
+                    # Пробуем распарсить — если не получается, используем текущую дату
+                    datetime.fromisoformat(parsed_date_raw.replace('Z', '+00:00'))
+                    actual_parsed_date = parsed_date_raw
+                except (ValueError, AttributeError):
+                    actual_parsed_date = actual_timestamp
+
+            # Сохраняем в БД
             cursor.execute('''
                 INSERT INTO spendings (
-                    user_id, description, category_main, category_psych, amount, timestamp, original_description, parsed_description, confidence, parsed_date
+                    user_id, description, category_main, category_psych, amount, timestamp,
+                    original_description, parsed_description, confidence, parsed_date
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 user_id,
-                original_description, # <-- Сохраняем оригинальное описание
+                original_description,
                 main_cat,
                 psych_cat,
                 amount,
-                parsed_date, # <-- Сохраняем извлечённую или текущую дату
-                original_description, # <-- Поле original_description
-                parsed_description, # <-- Поле parsed_description
-                confidence, # <-- Поле confidence
-                parsed_date # <-- Поле parsed_date
+                actual_timestamp,      # ← всегда корректное время сохранения
+                original_description,
+                parsed_description,
+                confidence,
+                actual_parsed_date     # ← всегда корректная дата
             ))
             conn.commit()
             conn.close()
-        except Exception as e:
-            print(f"DB error: {e}")
-            return jsonify({'success': False, 'message': 'Ошибка сохранения в базу'})
 
-        # Возвращаем успешный ответ клиенту
-        # Можно включить извлечённую сумму и дату в ответ, если нужно отобразить
-        return jsonify({
-            'success': True,
-            'classification': f"{main_cat} | {psych_cat}",
-            'advice': advice,
-            'amount': amount, # <-- Отправляем извлечённую сумму
-            'timestamp': parsed_date, # <-- Отправляем дату
-            'is_spending': True # <-- Индикатор, что это была трата
-        })
+            return jsonify({
+                'success': True,
+                'classification': f"{main_cat} | {psych_cat}",
+                'advice': advice,
+                'amount': amount,
+                'timestamp': actual_timestamp,  # ← отправляем клиенту реальное время
+                'is_spending': True
+            })
+        # === КОНЕЦ ЗАМЕНЫ ===
+        else:
+            return jsonify({
+                'success': True,
+                'advice': advice,
+                'is_spending': False
+            })
 
-    except ValueError as ve: # Ловим ошибки из classify_spending
-        print(f"Classification/Value error: {ve}")
-        # Если classify_spending не нашёл сумму -> это НЕ трата
-        conn.close() # Закрываем соединение, т.к. трату не сохраняем
     except Exception as e:
-        print(f"Workflow error: {e}")
+        print(f"Unexpected error in workflow: {e}")
         import traceback
         traceback.print_exc()
-        conn.close()
-        # Попробуем обработать как общий запрос, чтобы не терять сообщение пользователя
-        print("Treating as general query due to workflow error.")
+        return jsonify({'success': False, 'message': 'Ошибка обработки запроса'})
 
-    # Если мы дошли до этой точки, это НЕ трата
-    # Вызываем психолога для общего ответа
-    try:
-        # Создаём экземпляр психолога (предполагается, что файл называется psychologist_agent.py)
-        from psychologist_agent import FinancialPsychologistAgent
-        local_psychologist = FinancialPsychologistAgent()
-        general_advice = local_psychologist.respond_to_general_query(message)
-        return jsonify({
-            'success': True, # <-- Важно: возвращаем success: True для общего ответа
-            'advice': general_advice, # <-- Ответ ИИ, не основанный на трате
-            'is_spending': False # <-- Индикатор, что это был общий запрос
-            # 'timestamp': datetime.now().isoformat() # <-- Можно добавить, если нужно
-        })
-    except Exception as e:
-        print(f"Psychologist agent error for general query: {e}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({'success': False, 'message': 'Ошибка при обработке запроса психологом.'})
 
 @app.route('/get_spendings/<int:user_id>', methods=['GET'])
 def get_spendings(user_id):
