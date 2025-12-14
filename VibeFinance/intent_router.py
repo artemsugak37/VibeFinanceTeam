@@ -14,37 +14,17 @@ class IntentRouterAgent:
             raise ValueError("GIGACHAT_CREDENTIALS environment variable is not set")
         self.llm = GigaChat(credentials=credentials, verify_ssl_certs=False)
         self.prompt = ChatPromptTemplate.from_messages([
-            ("system", """
-Ты — маршрутизатор запросов. Определи **намерение пользователя** на основе его сообщения.
-
-Возможные типы:
-- "spending": пользователь **описывает конкретную покупку или расход** (даже если сумма не указана). Примеры: "Купил кофе", "Заправил машину".
-- "goal": пользователь говорит о **накоплениях, целях, мечтах, бюджете на будущее, желании отложить деньги**. Примеры: "Хочу накопить на машину", "Как отложить на отпуск?", "Помоги собрать на iPhone", "Сколько копить до отпуска?"
-- "question": пользователь **задаёт общий вопрос** о финансах или делится переживаниями. Примеры: "Как сэкономить?", "Почему я всё трачу?"
-- "greeting": приветствие, прощание или техническая фраза. Примеры: "Привет", "Пока", "Ты тут?"
-- "visualization": запрос на **графики, диаграммы, статистику, таблицы трат**. Примеры: "Покажи графики", "Статистика за неделю", "Визуализируй мои траты".
-
-Верни ТОЛЬКО JSON в формате:
-{{"intent": "spending" | "goal" | "question" | "greeting"}}
-
-Не добавляй пояснений.
-"""),
-            ("human", "{message}")
+            ("system", "Ты — классификатор запросов. Ответь одной строкой: spending, goal, goals, question, greeting или visualization."),
+            ("human", "Сообщение: '{message}'\nКлассификация:")
         ])
 
     def route(self, message: str) -> str:
-        messages = self.prompt.format_messages(message=message)
-        response = self.llm.invoke(messages)
-        raw = response.content.strip()
-        if raw.startswith("```json"):
-            raw = raw[7:]
-        if raw.endswith("```"):
-            raw = raw[:-3]
         try:
-            result = json.loads(raw.strip())
-            intent = result.get("intent")
-            if intent in ["spending", "goal", "question", "greeting", "visualization"]:
+            messages = self.prompt.format_messages(message=message)
+            response = self.llm.invoke(messages)
+            intent = response.content.strip().split()[0].lower()
+            if intent in ["spending", "goal", "goals", "question", "greeting", "visualization"]:
                 return intent
-        except:
-            pass
+        except Exception as e:
+            print(f"Intent routing error: {e}")
         return "question"

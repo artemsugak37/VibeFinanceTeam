@@ -4,7 +4,9 @@ from langgraph.graph import StateGraph, START, END
 from classificator import SpendingClassifierAgent
 from psychologist_agent import FinancialPsychologistAgent
 from intent_router import IntentRouterAgent
-from visualizer_agent import SpendingVisualizerAgent  # ← НОВЫЙ ИМПОРТ
+from llm_visualizer_agent import SpendingVisualizerAgent  
+from savings_planner_agent import SavingsPlannerAgent
+
 import sqlite3
 from datetime import datetime
 
@@ -24,7 +26,8 @@ class SpendingState(TypedDict):
 classifier = SpendingClassifierAgent()
 psychologist = FinancialPsychologistAgent()
 router = IntentRouterAgent()
-visualizer = SpendingVisualizerAgent()  # ← НОВЫЙ АГЕНТ
+visualizer = SpendingVisualizerAgent()
+savings_planner = SavingsPlannerAgent()  # ← глобальный экземпляр
 
 def route_intent(state: SpendingState) -> dict:
     intent = router.route(state["original_description"])
@@ -65,7 +68,6 @@ def classify_spending(state: SpendingState) -> dict:
                 "confidence": None
             }
 
-        # Валидация категорий
         VALID_MAIN = {"Еда", "Транспорт", "Развлечения", "Здоровье", "Одежда", "Жилье", "Образование", "Связь", "Другое"}
         VALID_PSYCH = {"Радость", "Комфорт", "Развитие", "Необходимость"}
 
@@ -104,16 +106,13 @@ def generate_advice(state: SpendingState) -> dict:
 
     try:
         if intent == "spending" and state.get("psych_category"):
-            # Обычная трата → психолог
             desc = state.get("parsed_description") or message
             advice = psychologist.advise(desc, state["psych_category"])
         elif intent == "goal":
-            # 🔹 НОВОЕ: обработка финансовых целей
-            from savings_planner_agent import SavingsPlannerAgent
-            planner = SavingsPlannerAgent()
-            advice = planner.generate_plan(message, user_id)
+            advice = savings_planner.generate_plan(message, user_id)
+        elif intent == "goals":  # ← НОВОЕ: просмотр целей
+            advice = savings_planner.get_user_goals(user_id)
         else:
-            # Вопрос, приветствие и т.д. → общий психолог
             advice = psychologist.respond_to_general_query(message)
     except Exception as e:
         print(f"Advice generation error: {e}")
@@ -121,7 +120,6 @@ def generate_advice(state: SpendingState) -> dict:
         traceback.print_exc()
         advice = "Спасибо за сообщение! Продолжай следить за своими финансами — ты на правильном пути."
 
-    # Предложение помощи с целями (только для вопросов, не для целей!)
     if intent == "question" and should_suggest_goal(message, user_id):
         advice += "\n\n💡 Кстати, я могу помочь тебе составить пошаговый план, как накопить на это — просто скажи «да»!"
 
@@ -132,13 +130,12 @@ def generate_visualization(state: SpendingState) -> dict:
     message = state["original_description"].lower()
     user_id = state["user_id"]
 
-    # Определяем период на основе ключевых слов
     if "месяц" in message or "month" in message:
         period = "month"
     elif "всё" in message or "все" in message or "all" in message:
         period = "all"
     else:
-        period = "week"  # по умолчанию — последняя неделя
+        period = "week"
 
     try:
         result = visualizer.generate_visualization(user_id, period)
@@ -170,13 +167,11 @@ def should_classify(state: SpendingState) -> str:
 # === ПОСТРОЕНИЕ ГРАФА ===
 workflow = StateGraph(SpendingState)
 
-# Узлы
 workflow.add_node("route", route_intent)
 workflow.add_node("classify", classify_spending)
 workflow.add_node("advise", generate_advice)
-workflow.add_node("visualize", generate_visualization)  # ← НОВЫЙ УЗЕЛ
+workflow.add_node("visualize", generate_visualization)
 
-# Рёбра
 workflow.add_edge(START, "route")
 workflow.add_conditional_edges(
     "route",
@@ -191,5 +186,4 @@ workflow.add_edge("classify", "advise")
 workflow.add_edge("visualize", END)
 workflow.add_edge("advise", END)
 
-# Скомпилированный граф
 spending_graph = workflow.compile()

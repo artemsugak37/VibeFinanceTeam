@@ -1,4 +1,4 @@
-# FinancialPsychologistAgent.py (или psychologist_agent.py)
+# psychologist_agent.py
 
 from langchain_gigachat import GigaChat
 from langchain_core.prompts import ChatPromptTemplate

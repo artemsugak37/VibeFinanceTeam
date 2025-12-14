@@ -26,7 +26,7 @@ class SavingsPlannerAgent:
 - Если сумма указана словами («сто тысяч»), переведи в число.
 - Если валюта не рубли — конвертируй в рубли по текущему курсу (~1$ = 90₽, ~1€ = 100₽).
 - Если сумма не указана — верни `"amount": null`.
-- Верни ТОЛЬКО JSON без пояснений: {"goal": "...", "amount": число | null}
+- Верни ТОЛЬКО JSON без пояснений: {{"goal": "...", "amount": число | null}}
 """),
             ("human", "{user_message}")
         ])
@@ -40,7 +40,7 @@ class SavingsPlannerAgent:
 - Цель: {goal}
 - Целевая сумма: {target_amount:,.0f} ₽
 - Ежемесячный взнос: {monthly_savings:,.0f} ₽
-- Срок накопления: {months} {"месяц" if months == 1 else "месяца" if 2 <= months <= 4 else "месяцев"}
+- Срок накопления: {months} {months_word}
 
 Совет должен:
 - Похвалить за постановку цели.
@@ -97,7 +97,7 @@ class SavingsPlannerAgent:
             print(f"Ошибка оценки дохода: {e}")
             return 60000.0
 
-    def calculate_plan(self, target_amount: float, user_id: int) -> dict:
+    def calculate_plan(self, target_amount: float, user_id: int, goal: str = "Финансовая цель") -> dict:
         """
         Возвращает: {
             "monthly_savings": float,
@@ -119,12 +119,16 @@ class SavingsPlannerAgent:
         # Регулируем взнос, чтобы ровно накопить
         monthly_savings = target_amount / months
 
-        # Генерация совета
+        # Определи слово для месяцев
+        months_word = self._months_to_text(months)
+        
+        # Генерация совета — ИСПОЛЬЗУЕМ ПРОСТЫЕ ПЛЕЙСХОЛДЕРЫ
         messages = self.advice_prompt.format_messages(
-            goal="цель",
+            goal=goal,
             target_amount=target_amount,
             monthly_savings=monthly_savings,
-            months=months
+            months=months,
+            months_word=months_word
         )
         response = self.llm.invoke(messages)
         advice = response.content.strip()
@@ -139,10 +143,9 @@ class SavingsPlannerAgent:
         goal, amount = self.extract_goal_and_amount(user_message)
 
         if not goal:
-            goal = "эта цель"
+            goal = "Финансовая цель"
 
         if amount is None:
-            # Пользователь не указал сумму — спросим вежливо
             return (
                 "Хорошо! Чтобы составить план, мне нужно знать, **во сколько рублей оценивается ваша цель**.\n"
                 "Например: «Хочу накопить на MacBook за 120000 рублей» или просто «Цель — 75000 ₽»."
@@ -151,8 +154,27 @@ class SavingsPlannerAgent:
         if amount <= 0:
             return "Похоже, сумма некорректна. Укажите положительную сумму в рублях."
 
-        plan = self.calculate_plan(amount, user_id)
+        # 🔹 Сначала рассчитываем план (без сохранения)
+        try:
+            plan = self.calculate_plan(amount, user_id, goal)
+        except Exception as e:
+            print(f"Ошибка расчёта плана: {e}")
+            return "Не удалось рассчитать план. Попробуйте позже."
 
+        # 🔹 Только после успешного расчёта — сохраняем в БД
+        try:
+            with sqlite3.connect('users.db') as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    INSERT INTO goals (user_id, title, target_amount)
+                    VALUES (?, ?, ?)
+                ''', (user_id, goal, amount))
+                conn.commit()
+        except Exception as e:
+            print(f"Цель рассчитана, но не сохранена в БД: {e}")
+            # Не прерываем — всё равно показываем план
+
+        # Формируем финальное сообщение
         months_word = self._months_to_text(plan["months"])
         return (
             f"🎯 **План накоплений на: {goal}**\n\n"
@@ -170,3 +192,44 @@ class SavingsPlannerAgent:
             return "месяца"
         else:
             return "месяцев"
+
+    def get_user_goals(self, user_id: int) -> str:
+        """Возвращает Markdown-список активных целей пользователя."""
+        try:
+            with sqlite3.connect('users.db') as conn:
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+                cursor.execute('''
+                    SELECT id, title, target_amount, current_amount, target_date
+                    FROM goals
+                    WHERE user_id = ? AND is_active = 1
+                    ORDER BY created_at DESC
+                ''', (user_id,))
+                rows = cursor.fetchall()
+
+            if not rows:
+                return (
+                    "У вас пока нет активных финансовых целей. 🎯\n"
+                    "Просто скажите, на что хотите накопить — и я помогу составить план!"
+                )
+
+            lines = ["**🎯 Ваши активные цели:**"]
+            for row in rows:
+                title = row["title"]
+                target = row["target_amount"]
+                current = row["current_amount"] or 0
+                progress = min(100, round(current / target * 100)) if target > 0 else 0
+
+                # Прогресс-бар (текстовый)
+                bar = "█" * (progress // 10) + "░" * (10 - progress // 10)
+                lines.append(f"\n**{title}**")
+                lines.append(f"Цель: **{target:,.0f} ₽**")
+                lines.append(f"Накоплено: **{current:,.0f} ₽** ({progress}%)")
+                lines.append(f"`[{bar}]`")
+
+            lines.append("\nХочешь добавить новую цель или изменить существующую?")
+            return "\n".join(lines)
+
+        except Exception as e:
+            print(f"Ошибка загрузки целей: {e}")
+            return "Не удалось загрузить цели. Попробуйте позже."

@@ -1,3 +1,5 @@
+
+# app.py
 from flask import Flask, request, jsonify
 import hashlib
 import sqlite3
@@ -379,6 +381,113 @@ def get_spendings(user_id):
     except Exception as e:
         print(f"Fetch spendings error: {e}")
         return jsonify({'success': False, 'message': 'Ошибка при загрузке трат'})
+
+@app.route('/get_goals/<int:user_id>', methods=['GET'])
+def get_goals(user_id):
+    """Получить все активные цели пользователя"""
+    try:
+        conn = sqlite3.connect('users.db')
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT id, title, target_amount, current_amount, created_at
+            FROM goals
+            WHERE user_id = ? AND is_active = 1
+            ORDER BY created_at DESC
+        ''', (user_id,))
+        rows = cursor.fetchall()
+        conn.close()
+
+        goals = [dict(row) for row in rows]
+        return jsonify({'success': True, 'goals': goals})
+    except Exception as e:
+        print(f"Fetch goals error: {e}")
+        return jsonify({'success': False, 'message': 'Ошибка при загрузке целей'})
+
+@app.route('/add_to_goal', methods=['POST'])
+def add_to_goal():
+    """Добавить сумму к цели"""
+    data = request.get_json()
+    goal_id = data.get('goal_id')
+    amount = data.get('amount')
+
+    if not goal_id or amount is None:
+        return jsonify({'success': False, 'message': 'Необходимы ID цели и сумма'})
+
+    try:
+        amount = float(amount)
+        if amount <= 0:
+            return jsonify({'success': False, 'message': 'Сумма должна быть положительной'})
+
+        conn = sqlite3.connect('users.db')
+        cursor = conn.cursor()
+        
+        # Получаем текущую сумму
+        cursor.execute('SELECT current_amount, target_amount FROM goals WHERE id = ?', (goal_id,))
+        result = cursor.fetchone()
+        
+        if not result:
+            conn.close()
+            return jsonify({'success': False, 'message': 'Цель не найдена'})
+        
+        current_amount, target_amount = result
+        new_amount = current_amount + amount
+        
+        # Обновляем сумму (не превышаем целевую)
+        final_amount = min(new_amount, target_amount)
+        
+        cursor.execute('''
+            UPDATE goals 
+            SET current_amount = ? 
+            WHERE id = ?
+        ''', (final_amount, goal_id))
+        
+        conn.commit()
+        conn.close()
+        
+        return jsonify({
+            'success': True, 
+            'current_amount': final_amount,
+            'target_amount': target_amount,
+            'progress': min(100, round((final_amount / target_amount) * 100, 1))
+        })
+    except Exception as e:
+        print(f"Add to goal error: {e}")
+        return jsonify({'success': False, 'message': 'Ошибка при добавлении суммы'})
+
+@app.route('/delete_goal/<int:goal_id>', methods=['DELETE'])
+def delete_goal(goal_id):
+    """Удалить цель (пометить как неактивную)"""
+    try:
+        conn = sqlite3.connect('users.db')
+        cursor = conn.cursor()
+        cursor.execute('''
+            UPDATE goals 
+            SET is_active = 0 
+            WHERE id = ?
+        ''', (goal_id,))
+        conn.commit()
+        conn.close()
+        
+        return jsonify({'success': True})
+    except Exception as e:
+        print(f"Delete goal error: {e}")
+        return jsonify({'success': False, 'message': 'Ошибка при удалении цели'})
+
+@app.route('/delete_spending/<int:spending_id>', methods=['DELETE'])
+def delete_spending(spending_id):
+    """Удалить трату"""
+    try:
+        conn = sqlite3.connect('users.db')
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM spendings WHERE id = ?', (spending_id,))
+        conn.commit()
+        conn.close()
+        
+        return jsonify({'success': True})
+    except Exception as e:
+        print(f"Delete spending error: {e}")
+        return jsonify({'success': False, 'message': 'Ошибка при удалении траты'})
 
 if __name__ == '__main__':
     init_db()
