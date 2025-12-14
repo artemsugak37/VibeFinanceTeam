@@ -152,7 +152,7 @@ def init_db():
         print("База данных users.db уже существует. Проверены все таблицы.")
 @app.route('/')
 def index():
-    with open('D:\артём\clown project\VibeFinance\main.html', 'r', encoding='utf-8') as f:
+    with open('D:/артём/clown project/VibeFinance/main.html', 'r', encoding='utf-8') as f:
         return f.read()
 
 @app.route('/register', methods=['POST'])
