@@ -152,6 +152,37 @@ class VisualizationAgent:
                 }
             })
         
+        # График динамики трат по времени
+        if "spendings" in analyst_data and analyst_data["spendings"]:
+            # Группируем траты по датам
+            daily_totals = {}
+            for spending in analyst_data["spendings"]:
+                try:
+                    ts = spending.get("timestamp")
+                    if ts and ts != "null":
+                        dt = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+                        date_key = dt.strftime("%Y-%m-%d")
+                        if date_key not in daily_totals:
+                            daily_totals[date_key] = 0
+                        daily_totals[date_key] += spending.get("amount", 0)
+                except:
+                    continue
+            
+            if daily_totals:
+                # Сортируем по дате
+                sorted_dates = sorted(daily_totals.keys())
+                dates = sorted_dates
+                amounts = [daily_totals[date] for date in dates]
+                
+                charts.append({
+                    "type": "line",
+                    "title": "Динамика трат по времени",
+                    "data": {
+                        "dates": dates,
+                        "values": amounts
+                    }
+                })
+        
         # Таблица трат
         if "spendings" in analyst_data and analyst_data["spendings"]:
             table_rows = []
@@ -201,16 +232,43 @@ class VisualizationAgent:
         Получает данные напрямую из БД и генерирует визуализацию.
         Это альтернативный метод, который не требует данных от аналитика.
         """
-        week_ago = datetime.now() - timedelta(days=7)
+        return self.get_visualization_data_by_period(user_id, "week")
+    
+    def get_visualization_data_by_period(self, user_id: int, period: str = "week") -> Dict[str, Any]:
+        """
+        Получает данные из БД для указанного периода и генерирует визуализацию.
+        
+        Args:
+            user_id: ID пользователя
+            period: "week", "month" или "all"
+        """
+        if period == "week":
+            start_date = datetime.now() - timedelta(days=7)
+            period_label = "Последняя неделя"
+        elif period == "month":
+            start_date = datetime.now() - timedelta(days=30)
+            period_label = "Последний месяц"
+        else:  # all
+            start_date = None
+            period_label = "Всё время"
+        
         conn = sqlite3.connect('users.db')
         cursor = conn.cursor()
         
-        cursor.execute('''
-            SELECT description, amount, category_main, category_psych, timestamp
-            FROM spendings
-            WHERE user_id = ? AND timestamp >= ?
-            ORDER BY timestamp DESC
-        ''', (user_id, week_ago.isoformat()))
+        if start_date:
+            cursor.execute('''
+                SELECT description, amount, category_main, category_psych, timestamp
+                FROM spendings
+                WHERE user_id = ? AND timestamp >= ?
+                ORDER BY timestamp ASC
+            ''', (user_id, start_date.isoformat()))
+        else:
+            cursor.execute('''
+                SELECT description, amount, category_main, category_psych, timestamp
+                FROM spendings
+                WHERE user_id = ?
+                ORDER BY timestamp ASC
+            ''', (user_id,))
         
         all_spendings = cursor.fetchall()
         conn.close()
@@ -219,7 +277,7 @@ class VisualizationAgent:
             return {
                 "charts": [],
                 "tables": [],
-                "insights": ["За последнюю неделю не было трат"]
+                "insights": [f"За {period_label.lower()} не было трат"]
             }
         
         # Группировка по категориям
@@ -247,7 +305,7 @@ class VisualizationAgent:
             "total_spent": total_spent,
             "category_totals": category_totals,
             "spendings": spendings_list,
-            "period": "Последняя неделя"
+            "period": period_label
         }
         
         # Генерируем визуализацию

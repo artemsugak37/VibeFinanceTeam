@@ -489,6 +489,30 @@ def delete_spending(spending_id):
         print(f"Delete spending error: {e}")
         return jsonify({'success': False, 'message': 'Ошибка при удалении траты'})
 
+@app.route('/get_visualization_data/<int:user_id>', methods=['GET'])
+def get_visualization_data(user_id):
+    """Получить данные для визуализации"""
+    try:
+        period = request.args.get('period', 'week')  # week, month, all
+        if period not in ['week', 'month', 'all']:
+            period = 'week'
+        
+        from visualization_agent import VisualizationAgent
+        viz_agent = VisualizationAgent()
+        data = viz_agent.get_visualization_data_by_period(user_id, period)
+        
+        return jsonify({
+            'success': True,
+            'charts': data.get('charts', []),
+            'insights': data.get('insights', []),
+            'period': period
+        })
+    except Exception as e:
+        print(f"Visualization data error: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'message': 'Ошибка при загрузке данных визуализации'})
+
 if __name__ == '__main__':
     init_db()
     app.run(debug=True)
