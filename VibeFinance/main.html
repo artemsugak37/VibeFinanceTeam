@@ -733,6 +733,94 @@
         .tab-content.active {
             display: block;
         }
+        /* Visualization Modal Styles */
+        .period-selector {
+            display: flex;
+            gap: 12px;
+            padding: 16px 32px;
+            border-bottom: 1px solid var(--light-gray);
+            background: var(--light);
+        }
+        .period-option {
+            padding: 8px 16px;
+            border: 2px solid var(--light-gray);
+            background: white;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-weight: 500;
+            color: var(--gray);
+        }
+        .period-option:hover {
+            border-color: var(--primary);
+            color: var(--primary);
+        }
+        .period-option.active {
+            background: var(--primary);
+            border-color: var(--primary);
+            color: white;
+        }
+        .charts-container {
+            padding: 24px 32px;
+            display: flex;
+            flex-direction: column;
+            gap: 32px;
+            max-height: calc(80vh - 200px);
+            overflow-y: auto;
+        }
+        .chart-wrapper {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+        .chart-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--dark);
+            margin-bottom: 16px;
+        }
+        .chart-div {
+            width: 100%;
+            min-height: 400px;
+        }
+        .insights-section {
+            padding: 24px 32px;
+            border-top: 1px solid var(--light-gray);
+            background: var(--light);
+        }
+        .insights-title {
+            font-size: 20px;
+            font-weight: 600;
+            color: var(--dark);
+            margin-bottom: 16px;
+        }
+        .insights-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        .insight-item {
+            padding: 12px 16px;
+            margin-bottom: 8px;
+            background: white;
+            border-radius: 8px;
+            border-left: 4px solid var(--primary);
+            color: var(--dark);
+        }
+        .loading-spinner {
+            text-align: center;
+            padding: 40px;
+            color: var(--gray);
+        }
+        .loading-spinner i {
+            font-size: 32px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
     </style>
 </head>
 <body>
@@ -790,6 +878,9 @@
                     <div class="logo-text">Vibe<span>Finance</span></div>
                 </div>
                 <div class="header-actions">
+                    <div class="refresh-btn" id="showVisualizationBtn" title="Финансовая визуализация">
+                        <i class="fas fa-chart-pie"></i>
+                    </div>
                     <div class="refresh-btn" id="showSpendingsBtn" title="Показать траты">
                         <i class="fas fa-chart-bar"></i>
                     </div>
@@ -861,6 +952,29 @@
             </div>
         </div>
     </div>
+    <!-- Modal for visualization -->
+    <div class="modal-overlay" id="visualizationModal">
+        <div class="modal-container" style="max-width: 1000px;">
+            <div class="modal-header">
+                <h2>Финансовая визуализация</h2>
+                <button class="close-btn" id="closeVisualizationModal">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="period-selector">
+                <div class="period-option active" data-period="week">Неделя</div>
+                <div class="period-option" data-period="month">Месяц</div>
+                <div class="period-option" data-period="all">Всё время</div>
+            </div>
+            <div class="modal-content" id="visualizationContent">
+                <div class="loading-spinner">
+                    <i class="fas fa-spinner"></i>
+                    <p>Загрузка данных...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="https://cdn.plot.ly/plotly-2.26.0.min.js"></script>
     <script>
         document.addEventListener('DOMContentLoaded', function() {
             // === Элементы ===
@@ -877,11 +991,15 @@
             const sendBtn = document.getElementById('sendBtn');
             const refreshBtn = document.getElementById('refreshBtn');
             const showSpendingsBtn = document.getElementById('showSpendingsBtn');
+            const showVisualizationBtn = document.getElementById('showVisualizationBtn');
             const voiceBtn = document.getElementById('voiceBtn');
             const spendingsModal = document.getElementById('spendingsModal');
+            const visualizationModal = document.getElementById('visualizationModal');
             const spendingsContent = document.getElementById('spendingsContent');
             const goalsContent = document.getElementById('goalsContent');
+            const visualizationContent = document.getElementById('visualizationContent');
             const closeModal = document.getElementById('closeModal');
+            const closeVisualizationModalBtn = document.getElementById('closeVisualizationModal');
             const spendingsTab = document.getElementById('spendingsTab');
             const goalsTab = document.getElementById('goalsTab');
 
@@ -1435,6 +1553,199 @@
                     alert('Ошибка при удалении траты');
                 });
             };
+
+            // === ВИЗУАЛИЗАЦИЯ ===
+            function openVisualizationModal() {
+                visualizationModal.classList.add('active');
+                document.body.style.overflow = 'hidden';
+                const userId = localStorage.getItem('userId');
+                if (userId) {
+                    loadVisualizationData(userId, 'week');
+                }
+            }
+
+            function closeVisualizationModal() {
+                visualizationModal.classList.remove('active');
+                document.body.style.overflow = '';
+            }
+
+            if (closeVisualizationModalBtn) {
+                closeVisualizationModalBtn.addEventListener('click', closeVisualizationModal);
+            }
+            visualizationModal.addEventListener('click', function(e) {
+                if (e.target === visualizationModal) closeVisualizationModal();
+            });
+            document.addEventListener('keydown', function(e) {
+                if (e.key === 'Escape' && visualizationModal.classList.contains('active')) {
+                    closeVisualizationModal();
+                }
+            });
+
+            showVisualizationBtn.addEventListener('click', () => {
+                const userId = localStorage.getItem('userId');
+                if (userId) {
+                    openVisualizationModal();
+                } else {
+                    addMessage('Сначала войдите в систему.', 'bot');
+                }
+            });
+
+            // Обработчики выбора периода
+            document.querySelectorAll('.period-option').forEach(option => {
+                option.addEventListener('click', function() {
+                    document.querySelectorAll('.period-option').forEach(opt => opt.classList.remove('active'));
+                    this.classList.add('active');
+                    const period = this.getAttribute('data-period');
+                    const userId = localStorage.getItem('userId');
+                    if (userId) {
+                        loadVisualizationData(userId, period);
+                    }
+                });
+            });
+
+            function loadVisualizationData(userId, period) {
+                visualizationContent.innerHTML = `
+                    <div class="loading-spinner">
+                        <i class="fas fa-spinner"></i>
+                        <p>Загрузка данных...</p>
+                    </div>
+                `;
+
+                fetch(`/get_visualization_data/${userId}?period=${period}`)
+                    .then(r => r.json())
+                    .then(data => {
+                        if (data.success) {
+                            renderVisualization(data);
+                        } else {
+                            visualizationContent.innerHTML = `
+                                <div class="empty-state">
+                                    <h3>Ошибка при загрузке данных</h3>
+                                    <p>${data.message || 'Попробуйте позже'}</p>
+                                </div>
+                            `;
+                        }
+                    })
+                    .catch(e => {
+                        console.error('Visualization load error:', e);
+                        visualizationContent.innerHTML = `
+                            <div class="empty-state">
+                                <h3>Ошибка сети</h3>
+                                <p>Не удалось загрузить данные визуализации</p>
+                            </div>
+                        `;
+                    });
+            }
+
+            function renderVisualization(data) {
+                const charts = data.charts || [];
+                const insights = data.insights || [];
+
+                let html = '<div class="charts-container">';
+
+                // Отрисовка графиков
+                charts.forEach((chart, index) => {
+                    const chartId = `chart-${index}`;
+                    html += `
+                        <div class="chart-wrapper">
+                            <div class="chart-title">${chart.title || 'График'}</div>
+                            <div class="chart-div" id="${chartId}"></div>
+                        </div>
+                    `;
+                });
+
+                html += '</div>';
+
+                // Добавляем секцию с инсайтами
+                if (insights.length > 0) {
+                    html += `
+                        <div class="insights-section">
+                            <div class="insights-title">💡 Инсайты</div>
+                            <ul class="insights-list">
+                                ${insights.map(insight => `<li class="insight-item">${insight}</li>`).join('')}
+                            </ul>
+                        </div>
+                    `;
+                }
+
+                visualizationContent.innerHTML = html;
+
+                // Отрисовка графиков Plotly
+                charts.forEach((chart, index) => {
+                    const chartId = `chart-${index}`;
+                    const chartElement = document.getElementById(chartId);
+                    
+                    if (!chartElement) return;
+
+                    let plotlyData = [];
+                    let layout = {
+                        title: '',
+                        font: { family: 'Segoe UI, sans-serif', size: 12 },
+                        margin: { l: 50, r: 50, t: 30, b: 50 },
+                        paper_bgcolor: 'rgba(0,0,0,0)',
+                        plot_bgcolor: 'rgba(0,0,0,0)'
+                    };
+
+                    if (chart.type === 'pie') {
+                        plotlyData = [{
+                            type: 'pie',
+                            labels: chart.data.labels,
+                            values: chart.data.values,
+                            textinfo: 'label+percent',
+                            textposition: 'outside',
+                            marker: {
+                                colors: ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16']
+                            }
+                        }];
+                    } else if (chart.type === 'bar') {
+                        plotlyData = [{
+                            type: 'bar',
+                            x: chart.data.labels,
+                            y: chart.data.values,
+                            marker: {
+                                color: '#6366f1'
+                            }
+                        }];
+                        layout.xaxis = { title: 'Категории' };
+                        layout.yaxis = { title: 'Сумма (₽)' };
+                    } else if (chart.type === 'line') {
+                        // Для line chart нужны временные данные
+                        // Если есть временные данные в chart.data, используем их
+                        if (chart.data && chart.data.dates && chart.data.values && chart.data.dates.length > 0) {
+                            // Форматируем даты для отображения
+                            const formattedDates = chart.data.dates.map(date => {
+                                try {
+                                    const d = new Date(date);
+                                    return d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' });
+                                } catch {
+                                    return date;
+                                }
+                            });
+                            
+                            plotlyData = [{
+                                type: 'scatter',
+                                mode: 'lines+markers',
+                                x: formattedDates,
+                                y: chart.data.values,
+                                line: { color: '#6366f1', width: 2 },
+                                marker: { size: 8, color: '#6366f1' }
+                            }];
+                            layout.xaxis = { title: 'Дата', tickangle: -45 };
+                            layout.yaxis = { title: 'Сумма (₽)' };
+                        } else {
+                            // Пропускаем график, если нет данных
+                            return;
+                        }
+                    }
+
+                    if (plotlyData.length > 0) {
+                        Plotly.newPlot(chartId, plotlyData, layout, {
+                            responsive: true,
+                            displayModeBar: true,
+                            displaylogo: false
+                        });
+                    }
+                });
+            }
         });
     </script>
 </body>
